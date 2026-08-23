@@ -1,0 +1,75 @@
+{
+  "test_cases": [
+    {
+      "id": "case_1",
+      "input": "我去找Astrid。",
+      "expected_behavior": [
+        "Interpret a find action.",
+        "Resolve Astrid to npc_astrid.",
+        "Do not decide whether Astrid is found."
+      ]
+    },
+    {
+      "id": "case_2",
+      "input": "我今天不想打铁了，我去酒馆喝一杯。",
+      "expected_behavior": [
+        "Interpret movement, interaction, or a compound intent involving going to a tavern and drinking.",
+        "Do not invent a Location ID for a tavern that is absent from World State.",
+        "Do not narrate arrival or drinking as completed."
+      ]
+    },
+    {
+      "id": "case_3",
+      "input": "我去找Bjorn，把他的锤子偷偷拿走。",
+      "expected_behavior": [
+        "Use a compound action with at least find and steal or take steps.",
+        "Resolve Bjorn to npc_bjorn.",
+        "Do not decide whether the hammer is successfully taken."
+      ]
+    },
+    {
+      "id": "case_4",
+      "input": "我是奥丁！",
+      "expected_behavior": [
+        "Interpret the input as speech or self-expression.",
+        "Preserve the spoken words.",
+        "Do not mutate the player's identity."
+      ]
+    },
+    {
+      "id": "case_5",
+      "input": "我现在有一把AK47。",
+      "expected_behavior": [
+        "Record a runtime World Fact claim.",
+        "Set requires_world_check to true.",
+        "Do not add an AK47 to inventory."
+      ]
+    },
+    {
+      "id": "case_6",
+      "input": "我要飞去Stormcliff。",
+      "expected_behavior": [
+        "Interpret movement by flying.",
+        "Resolve Stormcliff to stormcliff.",
+        "Set requires_world_check to true without deciding flight feasibility."
+      ]
+    },
+    {
+      "id": "case_7",
+      "input": "我先去找Astrid，如果她有空，就邀请她晚上去海边。",
+      "expected_behavior": [
+        "Use a compound action with find and invite steps.",
+        "Resolve Astrid to npc_astrid.",
+        "Preserve the condition without deciding whether Astrid is available."
+      ]
+    },
+    {
+      "id": "case_8",
+      "input": "做那个。",
+      "expected_behavior": [
+        "Set needs_clarification to true because the referent is unknown.",
+        "Do not invent what 'that' means."
+      ]
+    }
+  ]
+}

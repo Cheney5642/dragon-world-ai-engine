@@ -1,0 +1,149 @@
+{
+  "test_cases": [
+    {
+      "id": "case_1",
+      "input": "我是Skeld的年轻铁匠，叫Eirik，从小喜欢龙。",
+      "expected_output": {
+        "player": {
+          "name": "Eirik",
+          "species": "human",
+          "occupation": "blacksmith",
+          "background": "A young blacksmith from Skeld who has liked dragons since childhood.",
+          "traits": [
+            "young",
+            "fond of dragons"
+          ],
+          "current_location": "skeld_village",
+          "goals": []
+        },
+        "assumptions": [],
+        "conflicts": [],
+        "unsupported_claims": [],
+        "grounded_interpretation": "Eirik is a young human blacksmith from Skeld who has liked dragons since childhood.",
+        "needs_clarification": false
+      }
+    },
+    {
+      "id": "case_2",
+      "input": "我是一个靠捕鱼为生的普通渔民。",
+      "expected_output": {
+        "player": {
+          "name": null,
+          "species": "human",
+          "occupation": "fisherman",
+          "background": "An ordinary fisherman who makes a living by fishing.",
+          "traits": [],
+          "current_location": "skeld_village",
+          "goals": []
+        },
+        "assumptions": [
+          "current_location defaults to skeld_village because no location was specified."
+        ],
+        "conflicts": [],
+        "unsupported_claims": [],
+        "grounded_interpretation": "The player is a human fisherman starting in Skeld.",
+        "needs_clarification": false
+      }
+    },
+    {
+      "id": "case_3",
+      "input": "我就是一条住在Stormcliff的年轻野龙。",
+      "expected_output": {
+        "player": {
+          "name": null,
+          "species": "dragon",
+          "occupation": "wild dragon",
+          "background": "A young wild dragon living in Stormcliff.",
+          "traits": [
+            "young",
+            "wild"
+          ],
+          "current_location": "stormcliff",
+          "goals": []
+        },
+        "assumptions": [],
+        "conflicts": [],
+        "unsupported_claims": [],
+        "grounded_interpretation": "The player is a young wild dragon living in Stormcliff.",
+        "needs_clarification": false
+      }
+    },
+    {
+      "id": "case_4",
+      "input": "我是Skeld的铁匠，但我天生会飞。",
+      "expected_output": {
+        "player": {
+          "name": null,
+          "species": "human",
+          "occupation": "blacksmith",
+          "background": "A blacksmith from Skeld.",
+          "traits": [],
+          "current_location": "skeld_village",
+          "goals": []
+        },
+        "assumptions": [],
+        "conflicts": [
+          "Humans cannot fly unaided in the current world rules, so natural flight is not written to Player State."
+        ],
+        "unsupported_claims": [
+          "The player claims to be able to fly naturally."
+        ],
+        "grounded_interpretation": "The player is a human blacksmith from Skeld who claims to fly naturally, but that ability is not established as a world fact.",
+        "needs_clarification": false
+      }
+    },
+    {
+      "id": "case_5",
+      "input": "我是一个普通渔民，但其实我是奥丁转世。",
+      "expected_output": {
+        "player": {
+          "name": null,
+          "species": "human",
+          "occupation": "fisherman",
+          "background": "An ordinary fisherman.",
+          "traits": [],
+          "current_location": "skeld_village",
+          "goals": []
+        },
+        "assumptions": [
+          "current_location defaults to skeld_village because no location was specified."
+        ],
+        "conflicts": [],
+        "unsupported_claims": [
+          "The player claims to be the reincarnation of Odin, but this is not established as a world fact."
+        ],
+        "grounded_interpretation": "The player is an ordinary human fisherman who claims to be the reincarnation of Odin, but the claim is not currently established as a world fact.",
+        "needs_clarification": false
+      }
+    },
+    {
+      "id": "case_6",
+      "input": "我是一个未来世界士兵，我穿着动力装甲、拿着AK47，从未来穿越到了Skeld。",
+      "expected_output": {
+        "player": {
+          "name": null,
+          "species": "human",
+          "occupation": "soldier",
+          "background": "A soldier in Skeld whose claimed origin requires clarification.",
+          "traits": [],
+          "current_location": "skeld_village",
+          "goals": []
+        },
+        "assumptions": [
+          "species is assumed to be human from the player's description."
+        ],
+        "conflicts": [
+          "Powered armor and modern firearms conflict with the current pre-industrial technology rules.",
+          "Player Creation v0.1 cannot establish time travel or a future-world origin by changing World Rules."
+        ],
+        "unsupported_claims": [
+          "The player claims to wear powered armor.",
+          "The player claims to carry an AK47.",
+          "The player claims to have traveled from a future world."
+        ],
+        "grounded_interpretation": "The player can be grounded as a human soldier in Skeld, but the future origin and advanced equipment cannot become world facts until the player chooses a setting-compatible version or the world setting is separately revised.",
+        "needs_clarification": true
+      }
+    }
+  ]
+}

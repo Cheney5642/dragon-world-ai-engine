@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "player_creation.schema.json",
+  "title": "Player Creation Output v0.1",
+  "description": "将玩家的自由身份描述 Grounding 为可写入 World State 的结构化输出。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "player",
+    "assumptions",
+    "conflicts",
+    "unsupported_claims",
+    "grounded_interpretation",
+    "needs_clarification"
+  ],
+  "properties": {
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "species",
+        "occupation",
+        "background",
+        "traits",
+        "current_location",
+        "goals"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "玩家姓名；未指定时为 null。"
+        },
+        "species": {
+          "type": "string",
+          "enum": [
+            "human",
+            "dragon"
+          ],
+          "description": "v0.1 支持的玩家物种。"
+        },
+        "occupation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "玩家职业或身份称谓；不使用固定枚举。"
+        },
+        "background": {
+          "type": "string",
+          "description": "对玩家自述背景的简短总结。"
+        },
+        "traits": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "从玩家描述中提取的特征，最多 5 项。"
+        },
+        "current_location": {
+          "type": "string",
+          "enum": [
+            "skeld_village",
+            "stormcliff",
+            "old_ruins",
+            "whispering_woods"
+          ],
+          "default": "skeld_village",
+          "description": "玩家当前所在地点；未说明时默认为 skeld_village。"
+        },
+        "goals": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "从玩家描述中提取的当前或长期目标，最多 5 项。"
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "为补足未说明信息而做出的轻量假设。"
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "玩家描述中与当前 World State 或 World Rules 明确冲突、无法直接作为事实写入的部分。"
+    },
+    "unsupported_claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "玩家可以表达，但当前世界尚未承认为真实事实的主张。"
+    },
+    "grounded_interpretation": {
+      "type": "string",
+      "minLength": 1,
+      "description": "用一句简短自然语言说明系统如何将自由描述解释为符合当前规则的角色。"
+    },
+    "needs_clarification": {
+      "type": "boolean",
+      "description": "仅当角色最核心身份无法在当前世界中合理 Grounding 时为 true。"
+    }
+  }
+}

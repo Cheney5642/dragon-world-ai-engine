@@ -1,0 +1,143 @@
+{
+  "world": {
+    "name": "Dragon Isles",
+    "region": "Skeld Region",
+    "day": 1,
+    "hour": 8,
+    "weather": "cloudy",
+    "rules": {
+      "technology_level": "pre-industrial",
+      "dragons_exist": true,
+      "human_natural_flight": false,
+      "human_flight_via_bonded_dragon": true,
+      "prohibited_modern_technology": [
+        "modern firearms",
+        "cars",
+        "mobile phones"
+      ],
+      "identity_granted_rule_breaking_superpowers": false,
+      "playable_species": [
+        "human",
+        "dragon"
+      ]
+    }
+  },
+  "player": {
+    "id": "player_001",
+    "name": null,
+    "species": null,
+    "occupation": null,
+    "background": null,
+    "traits": [],
+    "current_location": "skeld_village",
+    "inventory": [],
+    "relationships": {},
+    "memories": [],
+    "goals": []
+  },
+  "locations": {
+    "skeld_village": {
+      "name": "Skeld",
+      "type": "village",
+      "description": "位于 Dragon Isles 边缘的寒冷渔村",
+      "connections": [
+        "stormcliff",
+        "old_ruins",
+        "whispering_woods"
+      ]
+    },
+    "stormcliff": {
+      "name": "Stormcliff",
+      "type": "wild_area",
+      "description": "常年受到强风和暴风雨影响的海崖",
+      "connections": [
+        "skeld_village"
+      ]
+    },
+    "old_ruins": {
+      "name": "Old Ruins",
+      "type": "ruins",
+      "description": "建造者未知的古代遗迹",
+      "connections": [
+        "skeld_village"
+      ]
+    },
+    "whispering_woods": {
+      "name": "Whispering Woods",
+      "type": "forest",
+      "description": "生活着野生动物和多种龙类的森林",
+      "connections": [
+        "skeld_village"
+      ]
+    }
+  },
+  "npcs": {
+    "astrid": {
+      "id": "npc_astrid",
+      "name": "Astrid",
+      "species": "human",
+      "occupation": "fisherman's daughter",
+      "personality": [
+        "independent",
+        "curious",
+        "practical"
+      ],
+      "current_location": "skeld_village",
+      "current_goal": "help prepare her father's fishing boat",
+      "mood": "neutral",
+      "knowledge": [
+        "local fishing routes",
+        "recent strange activity near the coast"
+      ],
+      "relationships": {},
+      "memories": []
+    },
+    "bjorn": {
+      "id": "npc_bjorn",
+      "name": "Bjorn",
+      "species": "human",
+      "occupation": "blacksmith",
+      "personality": [
+        "gruff",
+        "proud",
+        "reliable"
+      ],
+      "current_location": "skeld_village",
+      "current_goal": "finish repairing fishing equipment",
+      "mood": "busy",
+      "knowledge": [
+        "metalworking",
+        "village gossip"
+      ],
+      "relationships": {},
+      "memories": []
+    },
+    "haldor": {
+      "id": "npc_haldor",
+      "name": "Haldor",
+      "species": "human",
+      "occupation": "dragon tamer",
+      "personality": [
+        "patient",
+        "observant",
+        "secretive"
+      ],
+      "current_location": "skeld_village",
+      "current_goal": "observe unusual dragon behavior",
+      "mood": "concerned",
+      "knowledge": [
+        "dragon behavior",
+        "dragon habitats",
+        "Stormcliff"
+      ],
+      "relationships": {},
+      "memories": []
+    }
+  },
+  "global_state": {
+    "village_safety": 80,
+    "dragon_activity": 40,
+    "village_food_supply": 75,
+    "storm_intensity": 20
+  }
+}

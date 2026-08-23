@@ -1,0 +1,14 @@
+# Secrets and local provider configuration
+.env
+
+# Local Python environment and bytecode
+.venv/
+__pycache__/
+*.py[cod]
+
+# Runtime Persistent World State and interrupted atomic-write files
+data/saves/current_world.json
+data/saves/*.tmp
+
+# Local Microsoft Office lock files
+~$*.xlsx

@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "action_interpretation.schema.json",
+  "title": "Action Interpretation Result v0.1",
+  "description": "将玩家自然语言行动解释为只读的结构化 Action Intent；不表示行动已经执行或成功。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "raw_input",
+    "action_kind",
+    "steps",
+    "speech",
+    "claimed_facts",
+    "requires_world_check",
+    "needs_clarification"
+  ],
+  "properties": {
+    "raw_input": {
+      "type": "string",
+      "minLength": 1,
+      "description": "玩家未经改写的原始输入。"
+    },
+    "action_kind": {
+      "type": "string",
+      "enum": [
+        "speech",
+        "movement",
+        "interaction",
+        "observation",
+        "wait",
+        "self_expression",
+        "compound",
+        "other"
+      ],
+      "description": "仅用于粗粒度路由，不限制玩家可以尝试的动作。"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "description": "按玩家表达顺序保存一个或多个意图步骤；不是执行结果。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "verb",
+          "target",
+          "goal",
+          "method"
+        ],
+        "properties": {
+          "verb": {
+            "type": "string",
+            "minLength": 1,
+            "description": "自由形式的动作动词，例如 find、steal、invite、fly。"
+          },
+          "target": {
+            "description": "动作目标；无法确认时为 null，或保留名称并将 id 设为 null。",
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "id",
+                  "name"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "粗粒度目标类型，例如 npc、location、object。"
+                  },
+                  "id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "已知 World Entity 的真实 ID；无法匹配时必须为 null。"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "玩家提到的目标名称；未提及时可以为 null。"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "goal": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "玩家希望该步骤达到的目的；未说明时为 null。"
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "玩家明确说明的执行方式；未说明时为 null。"
+          }
+        }
+      }
+    },
+    "speech": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "玩家明确说出或准备说出的原始话语；没有明确话语时为 null。"
+    },
+    "claimed_facts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "玩家在 Runtime 中试图声明为客观 World Fact 的内容，不表示已经成立。"
+    },
+    "requires_world_check": {
+      "type": "boolean",
+      "description": "行动或声明是否依赖 Player、Inventory、Location、NPC、World Rules 或现实可行性检查。"
+    },
+    "needs_clarification": {
+      "type": "boolean",
+      "description": "仅当原始输入不足以形成明确行动意图时为 true。"
+    }
+  }
+}
