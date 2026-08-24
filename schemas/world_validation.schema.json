@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "world_validation.schema.json",
+  "title": "World Validation Result v0.1",
+  "description": "根据 Persistent World State 与 World Rules 对 Action Intent 做只读条件校验。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "overall_status",
+    "checks",
+    "missing_requirements",
+    "conflicts",
+    "requires_npc_decision",
+    "requires_further_resolution",
+    "validated_interpretation"
+  ],
+  "properties": {
+    "overall_status": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "conditional",
+        "blocked",
+        "needs_clarification"
+      ],
+      "description": "行动是否具备进入后续处理的条件；allowed 不表示行动已经成功。"
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "description": "针对行动前置事实的三值判断。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "fact",
+          "status",
+          "evidence"
+        ],
+        "properties": {
+          "fact": {
+            "type": "string",
+            "minLength": 1,
+            "description": "正在检查的事实或前置条件。"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "contradicted",
+              "unknown"
+            ],
+            "description": "World State 或 World Rules 对该事实的三值判断。"
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "description": "只能引用当前提供的 World State、World Rules 或明确缺失的数据。"
+          }
+        }
+      }
+    },
+    "missing_requirements": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "行动进入下一阶段前仍缺少的条件、事实或解析结果。"
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Action Intent 与明确 World State 或 World Rules 的冲突。"
+    },
+    "requires_npc_decision": {
+      "type": "boolean",
+      "description": "最终结果是否依赖 NPC 自主选择。"
+    },
+    "requires_further_resolution": {
+      "type": "boolean",
+      "description": "是否仍需要 Object、Movement、NPC 或 Action Execution 等后续处理。"
+    },
+    "validated_interpretation": {
+      "type": "string",
+      "minLength": 1,
+      "description": "简短说明当前世界允许、阻止或尚不能判断的部分，不得叙述行动已经发生。"
+    }
+  }
+}

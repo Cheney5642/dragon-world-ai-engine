@@ -1,0 +1,76 @@
+{
+  "test_cases": [
+    {
+      "id": "case_1",
+      "input": "我去找Astrid。",
+      "expected_behavior": [
+        "Astrid existence is supported.",
+        "Astrid and the player are in the same current location.",
+        "overall_status is allowed without claiming Astrid was found."
+      ]
+    },
+    {
+      "id": "case_2",
+      "input": "我要飞去Stormcliff。",
+      "expected_behavior": [
+        "Unaided human flight is contradicted by World Rules.",
+        "A bonded rideable dragon is missing from Player State.",
+        "overall_status is blocked without generating a fall outcome."
+      ]
+    },
+    {
+      "id": "case_3",
+      "input": "我去找Bjorn，把他的锤子偷偷拿走。",
+      "expected_behavior": [
+        "Bjorn existence and same-location compatibility are supported.",
+        "Bjorn's ownership or availability of the hammer is unknown.",
+        "overall_status is conditional without deciding theft success."
+      ]
+    },
+    {
+      "id": "case_4",
+      "input": "我现在有一把AK47。",
+      "expected_behavior": [
+        "AK47 ownership is contradicted by Player Inventory.",
+        "Modern firearm technology is contradicted by World Rules.",
+        "overall_status is blocked and Inventory remains unchanged."
+      ]
+    },
+    {
+      "id": "case_5",
+      "input": "我是奥丁！",
+      "expected_behavior": [
+        "The input remains Speech or Self Expression.",
+        "No Player identity mutation needs validation.",
+        "overall_status is allowed and Player identity is unchanged."
+      ]
+    },
+    {
+      "id": "case_6",
+      "input": "我去Stormcliff。",
+      "expected_behavior": [
+        "Stormcliff is a supported Location.",
+        "The direct Skeld to Stormcliff connection is supported.",
+        "overall_status is allowed without moving the Player."
+      ]
+    },
+    {
+      "id": "case_7",
+      "input": "我邀请Astrid晚上跟我去海边。",
+      "expected_behavior": [
+        "Astrid existence is supported.",
+        "Astrid's response is left to NPC Decision.",
+        "requires_npc_decision is true and overall_status is conditional."
+      ]
+    },
+    {
+      "id": "case_8",
+      "input": "我去找Ragnar。",
+      "expected_behavior": [
+        "Ragnar existence is unknown because no matching NPC exists.",
+        "No npc_ragnar ID is invented.",
+        "overall_status is conditional and requires_further_resolution is true."
+      ]
+    }
+  ]
+}
