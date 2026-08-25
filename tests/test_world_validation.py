@@ -67,7 +67,9 @@ def action(
 class WorldValidationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.world_state = interpret_action.load_current_world()
+        cls.world_state = validate_action.build_evaluation_world(
+            interpret_action.load_current_world()
+        )
         cls.validation_schema = validate_action.load_validation_schema()
         cls.seed_hash = file_hash(PROJECT_ROOT / "data" / "world_seed.json")
         cls.save_hash = file_hash(interpret_action.SAVE_PATH)

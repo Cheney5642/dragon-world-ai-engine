@@ -1,0 +1,410 @@
+.shell {
+  min-height: 100vh;
+  width: min(100%, 1600px);
+  margin: 0 auto;
+  padding: 22px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 16px;
+}
+
+.header,
+.panel,
+.actionConsole {
+  border: 1px solid var(--line);
+  background: linear-gradient(145deg, rgba(20, 31, 38, 0.94), rgba(8, 15, 20, 0.96));
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.28);
+}
+
+.header {
+  min-height: 78px;
+  padding: 15px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 4px;
+}
+
+.brandLockup,
+.worldClock,
+.actionRow,
+.weatherCard,
+.npcCard,
+.worldLog {
+  display: flex;
+  align-items: center;
+}
+
+.brandLockup { gap: 14px; }
+
+.brandMark,
+.loadingSigil {
+  width: 43px;
+  height: 43px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent);
+  color: var(--accent-bright);
+  transform: rotate(45deg);
+  box-shadow: inset 0 0 20px rgba(105, 186, 190, 0.1);
+}
+
+.brandMark span,
+.loadingSigil span {
+  display: block;
+  transform: rotate(-45deg);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.brandLockup p,
+.panelHeading span,
+.locationHeading > span,
+.consoleHeading > span,
+.worldClock span,
+.weatherCard span,
+.worldLog span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.brandLockup h1 {
+  margin-top: 3px;
+  color: var(--text-strong);
+  font-size: clamp(16px, 2vw, 22px);
+  font-weight: 650;
+  letter-spacing: 0.16em;
+}
+
+.worldClock {
+  gap: 24px;
+  text-align: right;
+}
+
+.worldClock > div:first-child { display: grid; gap: 4px; }
+
+.worldClock strong {
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.worldClock i { color: var(--accent); font-style: normal; }
+
+.onlineStatus {
+  padding: 9px 12px;
+  border: 1px solid rgba(93, 190, 161, 0.25);
+  color: #a6dbc9;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.onlineStatus > span {
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  display: inline-block;
+  border-radius: 50%;
+  background: #62c8a6;
+  box-shadow: 0 0 11px #62c8a6;
+}
+
+.dashboard {
+  min-height: 560px;
+  display: grid;
+  grid-template-columns: minmax(225px, 0.78fr) minmax(420px, 2.2fr) minmax(250px, 0.9fr);
+  gap: 16px;
+}
+
+.panel { padding: 20px; overflow: hidden; }
+
+.panelHeading {
+  margin-bottom: 24px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.panelHeading h2,
+.locationHeading h2 {
+  margin-top: 5px;
+  color: var(--text-strong);
+  font-size: 21px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+}
+
+.identityGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.identityGrid > div {
+  min-width: 0;
+  padding: 12px;
+  border-left: 2px solid var(--accent-dim);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.identityGrid span,
+.factList dt {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.identityGrid strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wideIdentity { grid-column: 1 / -1; }
+.listSection, .nearbySection { margin-top: 24px; }
+
+.listSection h3,
+.nearbySection h3 {
+  margin-bottom: 11px;
+  color: var(--text-strong);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.goalList,
+.inventoryList,
+.npcList,
+.developerView ul { list-style: none; }
+.goalList { display: grid; gap: 10px; }
+
+.goalList li {
+  display: grid;
+  grid-template-columns: 7px 1fr;
+  gap: 9px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.goalList li > span {
+  width: 5px;
+  height: 5px;
+  margin-top: 7px;
+  border: 1px solid var(--accent);
+  transform: rotate(45deg);
+}
+
+.inventoryList { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.inventoryList li {
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  color: var(--text);
+  background: rgba(111, 169, 174, 0.05);
+  font-size: 11px;
+}
+
+.emptyState { color: var(--muted); font-size: 12px; font-style: italic; }
+
+.worldPanel {
+  min-width: 0;
+  padding: 18px;
+  display: grid;
+  grid-template-rows: auto minmax(350px, 1fr) auto;
+  gap: 14px;
+  border: 1px solid var(--line);
+  background: rgba(5, 11, 15, 0.68);
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.3);
+}
+
+.locationHeading { padding: 1px 4px 7px; }
+.locationHeading p { margin-top: 5px; color: var(--muted); font-size: 12px; }
+
+.scene {
+  position: relative;
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid rgba(144, 190, 191, 0.2);
+  background: radial-gradient(circle at 62% 33%, rgba(149, 188, 184, 0.28), transparent 27%), linear-gradient(180deg, #53666b 0%, #293c42 42%, #101d24 100%);
+  isolation: isolate;
+}
+
+.skyGlow {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(116deg, transparent 0 57%, rgba(225, 237, 224, 0.12) 58% 59%, transparent 60%), repeating-linear-gradient(177deg, transparent 0 38px, rgba(217, 234, 231, 0.04) 39px 40px);
+}
+
+.distantLand, .nearLand, .mistBack { position: absolute; inset: auto -10% 0; }
+
+.distantLand {
+  height: 67%;
+  background: #263a3e;
+  clip-path: polygon(0 66%, 11% 53%, 22% 58%, 34% 35%, 43% 47%, 55% 17%, 65% 43%, 78% 30%, 89% 58%, 100% 42%, 100% 100%, 0 100%);
+  opacity: 0.82;
+}
+
+.nearLand {
+  height: 50%;
+  background: linear-gradient(180deg, #17282d, #091419);
+  clip-path: polygon(0 50%, 12% 42%, 25% 60%, 39% 43%, 52% 64%, 70% 35%, 83% 43%, 100% 25%, 100% 100%, 0 100%);
+}
+
+.mistBack {
+  bottom: 24%;
+  height: 18%;
+  background: linear-gradient(90deg, transparent, rgba(196, 216, 212, 0.2), transparent);
+  filter: blur(14px);
+  transform: skewX(-9deg);
+}
+
+.sceneGrain {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  opacity: 0.22;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.24) 0.6px, transparent 0.8px);
+  background-size: 6px 6px;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+
+.scene[data-location="skeld_village"] .nearLand { clip-path: polygon(0 63%, 13% 54%, 18% 33%, 21% 54%, 36% 57%, 42% 27%, 47% 57%, 65% 45%, 78% 58%, 86% 35%, 91% 57%, 100% 49%, 100% 100%, 0 100%); }
+.scene[data-location="old_ruins"] .nearLand { clip-path: polygon(0 65%, 24% 58%, 30% 27%, 37% 27%, 38% 52%, 49% 50%, 50% 17%, 57% 17%, 59% 55%, 77% 46%, 100% 57%, 100% 100%, 0 100%); }
+.scene[data-location="whispering_woods"] .distantLand { clip-path: polygon(0 67%, 7% 33%, 12% 67%, 19% 22%, 25% 65%, 33% 30%, 39% 66%, 47% 16%, 55% 64%, 64% 28%, 71% 65%, 80% 20%, 87% 66%, 94% 29%, 100% 64%, 100% 100%, 0 100%); }
+
+.sceneBadge {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 4;
+  min-width: 120px;
+  padding: 11px 13px;
+  border: 1px solid rgba(158, 206, 205, 0.25);
+  background: rgba(5, 13, 17, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.sceneBadge span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; }
+.sceneBadge strong { color: var(--text-strong); font-size: 12px; font-weight: 600; }
+
+.worldLog {
+  min-height: 61px;
+  padding: 10px 12px;
+  gap: 12px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.logMarker { width: 33px; height: 33px; display: grid; place-items: center; border: 1px solid var(--accent-dim); color: var(--accent-bright); font-size: 9px; }
+.worldLog > div:nth-child(2) { flex: 1; }
+.worldLog p { margin-top: 3px; color: var(--text); font-size: 12px; }
+.worldLog time { color: var(--muted); font-size: 10px; }
+
+.weatherCard {
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  background: linear-gradient(120deg, rgba(95, 155, 162, 0.1), rgba(255, 255, 255, 0.01));
+}
+
+.weatherGlyph { color: var(--accent-bright) !important; font-size: 27px !important; }
+.weatherCard strong { display: block; margin-top: 4px; color: var(--text-strong); font-size: 15px; font-weight: 570; }
+.factList { margin-top: 12px; }
+
+.factList > div { padding: 10px 2px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line-soft); }
+.factList dt { margin: 0; }
+.factList dd { color: var(--text); font-size: 12px; }
+.npcList { display: grid; gap: 8px; }
+
+.npcCard { gap: 10px; padding: 9px; border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.02); }
+.npcCard > div { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--accent-dim); color: var(--accent-bright); font-size: 11px; }
+.npcCard p { min-width: 0; display: grid; gap: 3px; }
+.npcCard strong { color: var(--text-strong); font-size: 12px; font-weight: 580; }
+.npcCard span { color: var(--muted); font-size: 10px; }
+
+.developerView { margin-top: 22px; border-top: 1px solid var(--line-soft); }
+.developerView summary { padding: 13px 0; color: var(--muted); cursor: pointer; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.developerView li { padding: 6px 0; display: flex; justify-content: space-between; gap: 8px; color: var(--text); font-size: 10px; }
+.developerView li strong { color: #75bca6; font-size: 9px; font-weight: 650; }
+.developerView p { margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+.actionConsole { padding: 16px 18px 18px; }
+.consoleHeading { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.consoleHeading p { color: var(--muted); font-size: 10px; }
+
+.actionConsole label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.actionRow { gap: 10px; }
+
+.actionRow textarea {
+  min-height: 58px;
+  flex: 1;
+  resize: vertical;
+  border: 1px solid var(--line-soft);
+  outline: none;
+  padding: 16px;
+  color: var(--text-strong);
+  background: rgba(2, 8, 11, 0.76);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.actionRow textarea:focus { border-color: var(--accent-dim); box-shadow: 0 0 0 2px rgba(91, 171, 176, 0.08); }
+.actionRow textarea::placeholder { color: #617178; }
+
+.actionRow button,
+.retryButton {
+  border: 1px solid var(--accent-dim);
+  color: var(--text-strong);
+  background: linear-gradient(135deg, rgba(68, 131, 137, 0.34), rgba(24, 54, 61, 0.7));
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.actionRow button { min-width: 130px; align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 18px; }
+.actionRow button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+.centeredState { min-height: 100vh; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.centeredState p { margin-top: 26px; color: var(--text-strong); font-size: 19px; letter-spacing: 0.04em; }
+.centeredState > span { margin-top: 8px; color: var(--muted); font-size: 12px; }
+.errorMark { width: 46px; height: 46px; display: grid; place-items: center; border: 1px solid #9e655d; color: #dca096; font-size: 21px; }
+.retryButton { margin-top: 22px; padding: 10px 18px; }
+
+@media (max-width: 1050px) {
+  .dashboard { grid-template-columns: minmax(205px, 0.75fr) minmax(440px, 1.6fr); }
+  .statePanel { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .statePanel .panelHeading { grid-column: 1 / -1; margin-bottom: 0; }
+  .nearbySection, .developerView { margin-top: 0; }
+}
+
+@media (max-width: 760px) {
+  .shell { padding: 10px; }
+  .header, .worldClock, .consoleHeading { align-items: flex-start; flex-direction: column; }
+  .worldClock { gap: 10px; text-align: left; }
+  .dashboard, .statePanel { display: grid; grid-template-columns: 1fr; }
+  .statePanel .panelHeading, .statePanel > * { grid-column: 1; }
+  .worldPanel { grid-row: 1; grid-template-rows: auto minmax(300px, 52vh) auto; }
+  .playerPanel { grid-row: 2; }
+  .actionRow { align-items: stretch; flex-direction: column; }
+  .actionRow button { min-height: 48px; }
+}

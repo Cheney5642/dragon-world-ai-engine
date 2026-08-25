@@ -12,3 +12,6 @@ data/saves/*.tmp
 
 # Local Microsoft Office lock files
 ~$*.xlsx
+
+# Frontend-only local configuration
+frontend/.env.local

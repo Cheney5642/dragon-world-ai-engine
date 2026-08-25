@@ -59,11 +59,16 @@ LOCATION_DIRECTORY_FIELDS = ("name", "type")
 # word or a short verb phrase.
 FIND_LIKE_PATTERNS = (
     "find",
+    "go find",
     "look for",
     "locate",
     "seek",
     "search for",
     "approach",
+    "go to meet",
+    "meet",
+    "travel to meet",
+    "travel toward",
 )
 TAKE_LIKE_VERBS = {
     "steal",
@@ -441,6 +446,21 @@ def is_find_like(value: Any) -> bool:
     return any(f" {pattern} " in padded for pattern in FIND_LIKE_PATTERNS)
 
 
+def step_is_find_or_approach_like(step: dict[str, Any]) -> bool:
+    """Evaluate a step's intent text; runtime routing never uses this helper."""
+
+    semantic_text = " ".join(
+        value
+        for value in (
+            step.get("verb"),
+            step.get("goal"),
+            step.get("method"),
+        )
+        if isinstance(value, str)
+    )
+    return is_find_like(semantic_text)
+
+
 def step_has_semantic_verb(
     step: dict[str, Any], accepted_verbs: set[str]
 ) -> bool:
@@ -471,7 +491,7 @@ def evaluate_expected_behavior(
     if case_id == "case_1":
         astrid_search = any(
             step_has_target_id(step, "npc_astrid")
-            and is_find_like(step.get("verb"))
+            and step_is_find_or_approach_like(step)
             for step in result_steps(result)
         )
         require(
@@ -511,7 +531,7 @@ def evaluate_expected_behavior(
             index
             for index, step in enumerate(steps)
             if step_has_target_id(step, "npc_bjorn")
-            and is_find_like(step.get("verb"))
+            and step_is_find_or_approach_like(step)
         ]
         taking_step_indexes = [
             index
@@ -571,10 +591,40 @@ def evaluate_expected_behavior(
         require(result.get("requires_world_check") is True, "requires_world_check should be true")
     elif case_id == "case_7":
         require(result.get("action_kind") == "compound", "action_kind should be compound")
-        require(len(result_steps(result)) >= 2, "should contain at least two steps")
-        require(has_verb(result, "find", "look for", "seek"), "should include finding Astrid")
-        require(has_verb(result, "invite", "ask"), "should include inviting Astrid")
-        require(has_target_id(result, "npc_astrid"), "should resolve Astrid to npc_astrid")
+        steps = result_steps(result)
+        require(len(steps) >= 2, "should contain at least two steps")
+        approach_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step_has_target_id(step, "npc_astrid")
+            and step_is_find_or_approach_like(step)
+        ]
+        invite_indexes = [
+            index
+            for index, step in enumerate(steps)
+            if step_has_target_id(step, "npc_astrid")
+            and text_contains(step.get("verb"), "invite", "ask")
+        ]
+        require(
+            bool(approach_indexes),
+            "should include finding, approaching, or going to meet npc_astrid",
+        )
+        require(
+            bool(invite_indexes),
+            "should include a later invite intent targeting npc_astrid",
+        )
+        require(
+            any(
+                approach_index < invite_index
+                for approach_index in approach_indexes
+                for invite_index in invite_indexes
+            ),
+            "the Astrid approach intent should precede the invite intent",
+        )
+        require(
+            result.get("claimed_facts") == [],
+            "the conditional invitation must not claim that Astrid agreed",
+        )
     elif case_id == "case_8":
         require(result.get("needs_clarification") is True, "needs_clarification should be true")
     else:
@@ -722,14 +772,19 @@ def main() -> int:
 
         display_player_status(world_state)
         action_input = read_action_input()
-        result = request_action_interpretation(
-            provider_client,
+        from core import action_pipeline
+
+        resources = action_pipeline.ActionPipelineResources(
+            provider_client=provider_client,
+            action_prompt=system_prompt,
+            action_schema=schema,
+        )
+        result = action_pipeline.interpret_action(
             action_input,
             world_state,
-            system_prompt,
-            schema,
+            resources,
+            interpreter_module=sys.modules[__name__],
         )
-        validate_result(result, schema, world_state, action_input)
 
         print("\nAction Interpretation Preview:")
         print(json.dumps(result, ensure_ascii=False, indent=2))

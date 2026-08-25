@@ -718,16 +718,25 @@ def main() -> int:
 
         action_interpreter.display_player_status(world_state)
         raw_input = action_interpreter.read_action_input()
-        action_result = action_interpreter.request_action_interpretation(
-            provider_client,
+        from core import action_pipeline
+
+        resources = action_pipeline.ActionPipelineResources(
+            provider_client=provider_client,
+            action_prompt=action_prompt,
+            action_schema=action_schema,
+            validation_prompt=validation_prompt,
+            validation_schema=validation_schema,
+            execution_schema=execution_schema,
+        )
+        preview = action_pipeline.preview_action(
             raw_input,
             world_state,
-            action_prompt,
-            action_schema,
+            resources,
+            interpreter_module=action_interpreter,
+            validator_module=world_validator,
+            executor_module=sys.modules[__name__],
         )
-        action_interpreter.validate_result(
-            action_result, action_schema, world_state, raw_input
-        )
+        action_result = preview["interpretation"]
         print("\nAction Interpretation Preview:")
         print(json.dumps(action_result, ensure_ascii=False, indent=2))
 
@@ -736,26 +745,11 @@ def main() -> int:
             print("Save was not modified.")
             return 0
 
-        assessment = world_validator.build_deterministic_assessment(
-            action_result, world_state
-        )
-        validation_result = world_validator.request_world_validation(
-            provider_client,
-            action_result,
-            world_state,
-            assessment,
-            validation_prompt,
-            validation_schema,
-        )
-        world_validator.validate_world_validation_schema(
-            validation_result, validation_schema
-        )
-        validation_result = world_validator.apply_deterministic_validation(
-            validation_result, assessment
-        )
-        world_validator.validate_world_validation_result(
-            validation_result, validation_schema, assessment
-        )
+        validation_result = preview["validation"]
+        if not isinstance(validation_result, dict):
+            raise ActionExecutionError(
+                "World Validation did not return a structured result."
+            )
         print("\nWorld Validation Preview:")
         print(json.dumps(validation_result, ensure_ascii=False, indent=2))
 
@@ -765,10 +759,11 @@ def main() -> int:
             print("Save was not modified.")
             return 0
 
-        plan = build_execution_plan(
-            action_result, validation_result, world_state
-        )
-        validate_execution_schema(plan, execution_schema)
+        plan = preview["execution_plan"]
+        if not isinstance(plan, dict):
+            raise ActionExecutionError(
+                "Action Execution did not return a structured plan."
+            )
         display_execution_plan(plan)
 
         if plan.get("can_execute") is not True:
@@ -776,16 +771,17 @@ def main() -> int:
             print("Save was not modified.")
             return 0
 
-        validate_mutation_plan(plan, validation_result, world_state)
         if not plan["proposed_mutations"]:
             display_next_system(plan)
             print("No World State Mutation was required.")
             return 0
 
-        committed_player = confirm_and_commit_execution(
+        committed_player = action_pipeline.confirm_and_commit_execution(
             plan,
             validation_result,
-            execution_schema=execution_schema,
+            resources,
+            save_path=SAVE_PATH,
+            executor_module=sys.modules[__name__],
         )
         if committed_player is None:
             print("Action execution cancelled. Save was not modified.")

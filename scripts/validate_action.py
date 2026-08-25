@@ -869,6 +869,18 @@ def evaluate_expected_behavior(
     return failures
 
 
+def build_evaluation_world(world_state: dict[str, Any]) -> dict[str, Any]:
+    """Isolate the frozen Evaluation from mutations in the runtime Save."""
+
+    evaluation_world = copy.deepcopy(world_state)
+    if "skeld_village" not in evaluation_world.get("locations", {}):
+        raise WorldValidationError(
+            "World Validation Evaluation requires Location 'skeld_village'."
+        )
+    evaluation_world["player"]["current_location"] = "skeld_village"
+    return evaluation_world
+
+
 def run_test_mode(
     provider_client: LLMProviderClient,
     world_state: dict[str, Any],
@@ -881,6 +893,7 @@ def run_test_mode(
     """Run Interpreter + Validator evaluation without any state mutation."""
 
     test_cases = load_test_cases(test_case_number)
+    evaluation_world = build_evaluation_world(world_state)
     passed = 0
     print(
         f"Running {len(test_cases)} World Validation cases with "
@@ -902,12 +915,12 @@ def run_test_mode(
             action_result = action_interpreter.request_action_interpretation(
                 provider_client,
                 raw_input,
-                world_state,
+                evaluation_world,
                 action_prompt,
                 action_schema,
             )
             action_interpreter.validate_result(
-                action_result, action_schema, world_state, raw_input
+                action_result, action_schema, evaluation_world, raw_input
             )
             print("Action Interpretation Preview:")
             print(json.dumps(action_result, ensure_ascii=False, indent=2))
@@ -918,12 +931,12 @@ def run_test_mode(
                 continue
 
             assessment = build_deterministic_assessment(
-                action_result, world_state
+                action_result, evaluation_world
             )
             validation_result = request_world_validation(
                 provider_client,
                 action_result,
-                world_state,
+                evaluation_world,
                 assessment,
                 validation_prompt,
                 validation_schema,
@@ -1027,15 +1040,20 @@ def main() -> int:
 
         action_interpreter.display_player_status(world_state)
         raw_input = action_interpreter.read_action_input()
-        action_result = action_interpreter.request_action_interpretation(
-            provider_client,
+        from core import action_pipeline
+
+        resources = action_pipeline.ActionPipelineResources(
+            provider_client=provider_client,
+            action_prompt=action_prompt,
+            action_schema=action_schema,
+            validation_prompt=validation_prompt,
+            validation_schema=validation_schema,
+        )
+        action_result = action_pipeline.interpret_action(
             raw_input,
             world_state,
-            action_prompt,
-            action_schema,
-        )
-        action_interpreter.validate_result(
-            action_result, action_schema, world_state, raw_input
+            resources,
+            interpreter_module=action_interpreter,
         )
 
         print("\nAction Interpretation Preview:")
@@ -1048,23 +1066,11 @@ def main() -> int:
             print("No World State was modified.")
             return 0
 
-        assessment = build_deterministic_assessment(
-            action_result, world_state
-        )
-        validation_result = request_world_validation(
-            provider_client,
+        validation_result = action_pipeline.validate_action(
             action_result,
             world_state,
-            assessment,
-            validation_prompt,
-            validation_schema,
-        )
-        validate_world_validation_schema(validation_result, validation_schema)
-        validation_result = apply_deterministic_validation(
-            validation_result, assessment
-        )
-        validate_world_validation_result(
-            validation_result, validation_schema, assessment
+            resources,
+            validator_module=sys.modules[__name__],
         )
 
         print("\nWorld Validation Preview:")
