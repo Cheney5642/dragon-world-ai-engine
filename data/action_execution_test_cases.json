@@ -1,0 +1,36 @@
+{
+  "test_cases": [
+    {
+      "id": "case_1",
+      "description": "Allowed movement proposes player.current_location from skeld_village to stormcliff."
+    },
+    {
+      "id": "case_2",
+      "description": "Applying the validated movement plan in memory updates Player location without changing other state."
+    },
+    {
+      "id": "case_3",
+      "description": "User cancellation does not call Commit and does not change the current Save."
+    },
+    {
+      "id": "case_4",
+      "description": "A blocked action cannot enter Action Execution."
+    },
+    {
+      "id": "case_5",
+      "description": "A conditional action cannot enter Action Execution."
+    },
+    {
+      "id": "case_6",
+      "description": "Finding Astrid in the same Location produces an encounter with no State Mutation."
+    },
+    {
+      "id": "case_7",
+      "description": "Pure speech produces no State Mutation and does not change Player identity."
+    },
+    {
+      "id": "case_8",
+      "description": "Execution Evaluation is read-only and world_seed.json remains unchanged."
+    }
+  ]
+}

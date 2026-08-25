@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "action_execution.schema.json",
+  "title": "Action Execution Plan v0.1",
+  "description": "在 Commit 前描述确定性 Action Execution 与候选 State Mutations。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "execution_type",
+    "can_execute",
+    "resolved_entities",
+    "proposed_mutations",
+    "execution_notes",
+    "requires_next_system"
+  ],
+  "properties": {
+    "execution_type": {
+      "type": "string",
+      "enum": [
+        "movement",
+        "encounter",
+        "speech",
+        "unsupported"
+      ],
+      "description": "v0.1 支持的确定性执行路由。"
+    },
+    "can_execute": {
+      "type": "boolean",
+      "description": "该 Execution Plan 是否通过当前 Executor 的能力范围检查。"
+    },
+    "resolved_entities": {
+      "type": "array",
+      "description": "Executor 已解析并验证存在的相关实体。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entity_type",
+          "entity_id",
+          "name"
+        ],
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "player",
+              "npc",
+              "location"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "proposed_mutations": {
+      "type": "array",
+      "description": "尚未 Commit 的候选 Mutation；Preview 本身不改变状态。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entity_type",
+          "entity_id",
+          "field",
+          "old_value",
+          "new_value"
+        ],
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "player"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "current_location"
+            ]
+          },
+          "old_value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "new_value": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "execution_notes": {
+      "type": "string",
+      "minLength": 1,
+      "description": "说明计划和边界，不得生成 NPC 反应或剧情结果。"
+    },
+    "requires_next_system": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "没有 State Mutation 时需要交给的未来系统；无后续需求时为 null。"
+    }
+  }
+}
