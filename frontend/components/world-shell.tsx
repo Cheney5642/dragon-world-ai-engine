@@ -10,32 +10,23 @@ import {
   getWorldState,
   previewAction,
 } from "@/lib/api";
+import {
+  ACTION_KIND_COPY,
+  COMMIT_STATUS_COPY,
+  displayLabel,
+  EXECUTION_TYPE_COPY,
+  LOCATION_MOOD_COPY,
+  movementCommittedLog,
+  PIPELINE_STATUS_COPY,
+  UI_COPY,
+  VALIDATION_CHECK_STATUS_COPY,
+  VALIDATION_STATUS_COPY,
+} from "@/lib/ui-copy";
+import type { CommitUiStatus } from "@/lib/ui-copy";
 import type { ActionPreviewResponse } from "@/types/action";
 import type { InventoryEntry, WorldState } from "@/types/world";
 
 import styles from "./world-shell.module.css";
-
-const LOCATION_MOODS: Record<string, string> = {
-  skeld_village: "Cold harbor settlement",
-  stormcliff: "Wind-scoured sea cliffs",
-  old_ruins: "Ancient stone remains",
-  whispering_woods: "Wild forest territory",
-};
-
-type CommitStatus =
-  | "not_requested"
-  | "ready"
-  | "committing"
-  | "committed"
-  | "not_committed"
-  | "failed";
-
-function formatLabel(value: string | null | undefined): string {
-  if (!value) return "Unknown";
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
 
 function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`;
@@ -43,7 +34,7 @@ function formatHour(hour: number): string {
 
 function formatInventoryItem(item: InventoryEntry): string {
   if (typeof item === "string") return item;
-  const name = item.name ?? item.id ?? "Unknown item";
+  const name = item.name ?? item.id ?? UI_COPY.player.unknownItem;
   return item.quantity && item.quantity > 1
     ? `${name} × ${item.quantity}`
     : name;
@@ -86,8 +77,8 @@ function LoadingState() {
       <div className={styles.loadingSigil} aria-hidden="true">
         <span>DW</span>
       </div>
-      <p>Loading Dragon World...</p>
-      <span>Synchronizing persistent state</span>
+      <p>{UI_COPY.loading.title}</p>
+      <span>{UI_COPY.loading.detail}</span>
     </main>
   );
 }
@@ -98,12 +89,10 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
       <div className={styles.errorMark} aria-hidden="true">
         !
       </div>
-      <p>Dragon World API is offline.</p>
-      <span>
-        In development, confirm the Backend is running at {API_BASE_URL}.
-      </span>
+      <p>{UI_COPY.errors.worldOffline}</p>
+      <span>{UI_COPY.errors.backendHint(API_BASE_URL)}</span>
       <button className={styles.retryButton} type="button" onClick={onRetry}>
-        Retry connection
+        {UI_COPY.errors.retry}
       </button>
     </main>
   );
@@ -125,43 +114,53 @@ function ActionPreviewPanel({
   const { interpretation, validation, execution_plan: plan } = preview;
 
   return (
-    <section className={styles.previewPanel} aria-label="Action preview result">
+    <section className={styles.previewPanel} aria-label={UI_COPY.preview.title}>
       <header className={styles.previewHeader}>
         <div>
-          <span>Action Pipeline Preview</span>
+          <span>{UI_COPY.preview.title}</span>
           <h3>{interpretation.raw_input}</h3>
         </div>
         <strong data-status={preview.pipeline_status}>
-          {formatLabel(preview.pipeline_status)}
+          {PIPELINE_STATUS_COPY[preview.pipeline_status]}
         </strong>
       </header>
 
       <div className={styles.previewGrid}>
         <article className={styles.previewCard}>
-          <span>01 · Interpretation</span>
-          <h4>{formatLabel(interpretation.action_kind)}</h4>
+          <span>01 · {UI_COPY.preview.interpretation}</span>
+          <h4>{ACTION_KIND_COPY[interpretation.action_kind]}</h4>
           <ol className={styles.stepList}>
             {interpretation.steps.map((step, index) => (
               <li key={`${step.verb}-${index}`}>
                 <div>
                   <strong>{step.verb}</strong>
                   <span>
-                    {step.target?.name ?? step.target?.id ?? "No target"}
+                    {step.target?.name ??
+                      step.target?.id ??
+                      UI_COPY.preview.noTarget}
                   </span>
                 </div>
-                {step.goal ? <p>Goal: {step.goal}</p> : null}
-                {step.method ? <p>Method: {step.method}</p> : null}
+                {step.goal ? (
+                  <p>
+                    {UI_COPY.preview.goal}：{step.goal}
+                  </p>
+                ) : null}
+                {step.method ? (
+                  <p>
+                    {UI_COPY.preview.method}：{step.method}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ol>
           {interpretation.speech ? (
             <p className={styles.previewNote}>
-              Speech: “{interpretation.speech}”
+              {UI_COPY.preview.speech}：“{interpretation.speech}”
             </p>
           ) : null}
           {interpretation.claimed_facts.length ? (
             <div className={styles.previewList}>
-              <strong>Claimed facts</strong>
+              <strong>{UI_COPY.preview.claimedFacts}</strong>
               <ul>
                 {interpretation.claimed_facts.map((claim) => (
                   <li key={claim}>{claim}</li>
@@ -172,26 +171,26 @@ function ActionPreviewPanel({
         </article>
 
         <article className={styles.previewCard}>
-          <span>02 · World Validation</span>
+          <span>02 · {UI_COPY.preview.validation}</span>
           {validation ? (
             <>
-              <h4>{formatLabel(validation.overall_status)}</h4>
+              <h4>{VALIDATION_STATUS_COPY[validation.overall_status]}</h4>
               <p className={styles.previewNote}>
                 {validation.validated_interpretation}
               </p>
               <div className={styles.previewList}>
-                <strong>Checks</strong>
+                <strong>{UI_COPY.preview.checks}</strong>
                 <ul>
                   {validation.checks.map((check, index) => (
                     <li key={`${check.fact}-${index}`}>
-                      {check.fact} — {formatLabel(check.status)}
+                      {check.fact} — {VALIDATION_CHECK_STATUS_COPY[check.status]}
                     </li>
                   ))}
                 </ul>
               </div>
               {validation.conflicts.length ? (
                 <div className={styles.previewList}>
-                  <strong>Conflicts</strong>
+                  <strong>{UI_COPY.preview.conflicts}</strong>
                   <ul>
                     {validation.conflicts.map((conflict) => (
                       <li key={conflict}>{conflict}</li>
@@ -201,7 +200,7 @@ function ActionPreviewPanel({
               ) : null}
               {validation.missing_requirements.length ? (
                 <div className={styles.previewList}>
-                  <strong>Missing requirements</strong>
+                  <strong>{UI_COPY.preview.missingRequirements}</strong>
                   <ul>
                     {validation.missing_requirements.map((requirement) => (
                       <li key={requirement}>{requirement}</li>
@@ -212,34 +211,38 @@ function ActionPreviewPanel({
             </>
           ) : (
             <p className={styles.previewEmpty}>
-              Validation was not reached by this preview.
+              {UI_COPY.preview.validationNotReached}
             </p>
           )}
         </article>
 
         <article className={styles.previewCard}>
-          <span>03 · Execution Plan</span>
+          <span>03 · {UI_COPY.preview.executionPlan}</span>
           {plan ? (
             <>
-              <h4>{formatLabel(plan.execution_type)}</h4>
+              <h4>{EXECUTION_TYPE_COPY[plan.execution_type]}</h4>
               <p className={styles.previewNote}>{plan.execution_notes}</p>
               <dl className={styles.planFacts}>
                 <div>
-                  <dt>Can execute</dt>
-                  <dd>{plan.can_execute ? "Yes" : "No"}</dd>
+                  <dt>{UI_COPY.preview.canExecute}</dt>
+                  <dd>
+                    {plan.can_execute ? UI_COPY.preview.yes : UI_COPY.preview.no}
+                  </dd>
                 </div>
                 <div>
-                  <dt>Mutations</dt>
+                  <dt>{UI_COPY.preview.mutations}</dt>
                   <dd>{plan.proposed_mutations.length}</dd>
                 </div>
               </dl>
               {plan.proposed_mutations.length ? (
                 <div className={styles.previewList}>
-                  <strong>Proposed mutations</strong>
+                  <strong>{UI_COPY.preview.proposedMutations}</strong>
                   <ul>
                     {plan.proposed_mutations.map((mutation, index) => (
                       <li key={`${mutation.field}-${index}`}>
-                        {mutation.field}: {mutation.old_value} → {mutation.new_value}
+                        {displayLabel(mutation.field)} · {UI_COPY.preview.before}：
+                        {mutation.old_value} · {UI_COPY.preview.after}：
+                        {mutation.new_value}
                       </li>
                     ))}
                   </ul>
@@ -247,13 +250,13 @@ function ActionPreviewPanel({
               ) : null}
               {plan.requires_next_system ? (
                 <p className={styles.previewNote}>
-                  Next system: {plan.requires_next_system}
+                  {UI_COPY.preview.nextSystem}：{plan.requires_next_system}
                 </p>
               ) : null}
             </>
           ) : (
             <p className={styles.previewEmpty}>
-              No execution plan was produced.
+              {UI_COPY.preview.noExecutionPlan}
             </p>
           )}
         </article>
@@ -261,14 +264,14 @@ function ActionPreviewPanel({
 
       {needsNoPersistentMutation(preview) ? (
         <p className={styles.noMutationNotice}>
-          No persistent world mutation required.
+          {UI_COPY.preview.noPersistentMutation}
         </p>
       ) : null}
 
       <div className={styles.confirmControls}>
         {canConfirm || committing ? (
           <button type="button" onClick={onConfirm} disabled={committing}>
-            {committing ? "Committing..." : "Confirm Action"}
+            {committing ? UI_COPY.preview.committing : UI_COPY.preview.confirm}
           </button>
         ) : null}
         <button
@@ -277,7 +280,7 @@ function ActionPreviewPanel({
           onClick={onCancel}
           disabled={committing}
         >
-          Cancel
+          {UI_COPY.preview.cancel}
         </button>
       </div>
     </section>
@@ -298,10 +301,10 @@ export function WorldShell() {
   const [committing, setCommitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [commitStatus, setCommitStatus] =
-    useState<CommitStatus>("not_requested");
+    useState<CommitUiStatus>("not_requested");
   const [worldLogMessage, setWorldLogMessage] = useState<string | null>(null);
-  const [consoleMessage, setConsoleMessage] = useState(
-    "AI Action Pipeline — Preview Only",
+  const [consoleMessage, setConsoleMessage] = useState<string>(
+    UI_COPY.action.initialStatus,
   );
 
   useEffect(() => {
@@ -337,7 +340,7 @@ export function WorldShell() {
     setActionPreview(null);
     setPreviewedInput(null);
     setCommitStatus("not_requested");
-    setConsoleMessage("Interpreting action...");
+    setConsoleMessage(UI_COPY.action.interpreting);
 
     try {
       const preview = await previewAction(input);
@@ -345,13 +348,15 @@ export function WorldShell() {
       setPreviewedInput(input);
       setCommitStatus(isCommitEligible(preview) ? "ready" : "not_requested");
       setConsoleMessage(
-        `Preview ready · ${formatLabel(preview.pipeline_status)}`,
+        UI_COPY.action.previewReady(
+          PIPELINE_STATUS_COPY[preview.pipeline_status],
+        ),
       );
     } catch (error: unknown) {
       setActionError(
-        actionErrorMessage(error, "Action preview could not be generated."),
+        actionErrorMessage(error, UI_COPY.errors.previewFallback),
       );
-      setConsoleMessage("Action preview failed");
+      setConsoleMessage(UI_COPY.action.previewFailed);
     } finally {
       setPreviewLoading(false);
     }
@@ -365,7 +370,7 @@ export function WorldShell() {
     setActionPreview(null);
     setPreviewedInput(null);
     setCommitStatus("not_requested");
-    setConsoleMessage("Action changed · Preview required");
+    setConsoleMessage(UI_COPY.action.changed);
   }
 
   function handleCancelPreview() {
@@ -373,7 +378,7 @@ export function WorldShell() {
     setPreviewedInput(null);
     setActionError(null);
     setCommitStatus("not_requested");
-    setConsoleMessage("Preview cancelled · Save was not modified");
+    setConsoleMessage(UI_COPY.action.cancelled);
   }
 
   async function handleConfirmAction() {
@@ -389,14 +394,16 @@ export function WorldShell() {
     }
 
     const committedInput = previewedInput;
-    const previousLocation = worldState?.current_location.name ?? "Unknown";
+    const previousLocation =
+      worldState?.current_location.name ?? displayLabel(null);
+    const playerName = worldState?.player.name ?? UI_COPY.player.unnamed;
     let serverCommitted = false;
 
     commitInFlightRef.current = true;
     setCommitting(true);
     setCommitStatus("committing");
     setActionError(null);
-    setConsoleMessage("Server is revalidating and committing action...");
+    setConsoleMessage(UI_COPY.action.revalidating);
 
     try {
       const result = await commitAction(committedInput);
@@ -406,7 +413,9 @@ export function WorldShell() {
         setPreviewedInput(null);
         setCommitStatus("not_committed");
         setConsoleMessage(
-          `Action was not committed · ${formatLabel(result.pipeline_status)}`,
+          UI_COPY.action.notCommitted(
+            PIPELINE_STATUS_COPY[result.pipeline_status],
+          ),
         );
         return;
       }
@@ -416,22 +425,28 @@ export function WorldShell() {
       const latestWorld = await getWorldState();
       setWorldState(latestWorld);
       setWorldLogMessage(
-        `Action committed: moved from ${previousLocation} to ${latestWorld.current_location.name}.`,
+        movementCommittedLog(
+          playerName,
+          previousLocation,
+          latestWorld.current_location.name,
+        ),
       );
       setActionPreview(null);
       setPreviewedInput(null);
       setActionError(null);
       setActionInput("");
-      setConsoleMessage("Action committed · World State refreshed");
+      setConsoleMessage(UI_COPY.action.commitSucceeded);
     } catch (error: unknown) {
       setCommitStatus(serverCommitted ? "committed" : "failed");
       setActionError(
         serverCommitted
-          ? "Action was committed, but the latest World State could not be refreshed."
-          : actionErrorMessage(error, "Action could not be committed."),
+          ? UI_COPY.errors.refreshAfterCommit
+          : actionErrorMessage(error, UI_COPY.errors.commitFallback),
       );
       setConsoleMessage(
-        serverCommitted ? "World refresh failed" : "Action commit failed",
+        serverCommitted
+          ? UI_COPY.action.refreshFailed
+          : UI_COPY.action.commitFailed,
       );
     } finally {
       commitInFlightRef.current = false;
@@ -446,7 +461,8 @@ export function WorldShell() {
 
   const { player, world, current_location: location, nearby_npcs: nearbyNpcs } =
     worldState;
-  const locationMood = LOCATION_MOODS[location.id] ?? "Dragon Isles territory";
+  const locationMood =
+    LOCATION_MOOD_COPY[location.id] ?? UI_COPY.world.fallbackMood;
   const canConfirm =
     actionPreview !== null &&
     previewedInput !== null &&
@@ -461,46 +477,49 @@ export function WorldShell() {
             <span>DW</span>
           </div>
           <div>
-            <p>AI World Engine</p>
-            <h1>DRAGON WORLD</h1>
+            <p>{UI_COPY.brand.subtitle}</p>
+            <h1>{UI_COPY.brand.name}</h1>
           </div>
         </div>
 
         <div className={styles.worldClock}>
           <div>
-            <span>World cycle</span>
+            <span>{UI_COPY.header.worldCycle}</span>
             <strong>
-              Day {world.day} <i aria-hidden="true">·</i> {formatHour(world.hour)}
+              {UI_COPY.header.dayAndHour(world.day, formatHour(world.hour))}
             </strong>
           </div>
           <div className={styles.onlineStatus}>
             <span aria-hidden="true" />
-            World Online
+            {UI_COPY.header.worldOnline}
           </div>
         </div>
       </header>
 
       <div className={styles.dashboard}>
         <aside className={`${styles.panel} ${styles.playerPanel}`}>
-          <PanelTitle eyebrow="Player state" title={player.name ?? "Unnamed"} />
+          <PanelTitle
+            eyebrow={UI_COPY.player.section}
+            title={player.name ?? UI_COPY.player.unnamed}
+          />
 
           <div className={styles.identityGrid}>
             <div>
-              <span>Species</span>
-              <strong>{formatLabel(player.species)}</strong>
+              <span>{UI_COPY.player.species}</span>
+              <strong>{displayLabel(player.species)}</strong>
             </div>
             <div>
-              <span>Occupation</span>
-              <strong>{formatLabel(player.occupation)}</strong>
+              <span>{UI_COPY.player.occupation}</span>
+              <strong>{displayLabel(player.occupation)}</strong>
             </div>
             <div className={styles.wideIdentity}>
-              <span>Current location</span>
+              <span>{UI_COPY.player.currentLocation}</span>
               <strong>{location.name}</strong>
             </div>
           </div>
 
           <section className={styles.listSection}>
-            <h3>Goals</h3>
+            <h3>{UI_COPY.player.goals}</h3>
             {player.goals.length ? (
               <ul className={styles.goalList}>
                 {player.goals.map((goal, index) => (
@@ -511,12 +530,12 @@ export function WorldShell() {
                 ))}
               </ul>
             ) : (
-              <p className={styles.emptyState}>No goals recorded.</p>
+              <p className={styles.emptyState}>{UI_COPY.player.noGoals}</p>
             )}
           </section>
 
           <section className={styles.listSection}>
-            <h3>Inventory</h3>
+            <h3>{UI_COPY.player.inventory}</h3>
             {player.inventory.length ? (
               <ul className={styles.inventoryList}>
                 {player.inventory.map((item, index) => (
@@ -532,14 +551,16 @@ export function WorldShell() {
                 ))}
               </ul>
             ) : (
-              <p className={styles.emptyState}>Empty</p>
+              <p className={styles.emptyState}>
+                {UI_COPY.player.emptyInventory}
+              </p>
             )}
           </section>
         </aside>
 
         <section className={styles.worldPanel}>
           <div className={styles.locationHeading}>
-            <span>Current location</span>
+            <span>{UI_COPY.world.currentLocation}</span>
             <h2>{location.name}</h2>
             <p>{locationMood}</p>
           </div>
@@ -551,8 +572,8 @@ export function WorldShell() {
             <div className={styles.nearLand} />
             <div className={styles.sceneGrain} />
             <div className={styles.sceneBadge}>
-              <span>{formatLabel(location.type)}</span>
-              <strong>{formatLabel(world.weather)}</strong>
+              <span>{displayLabel(location.type)}</span>
+              <strong>{displayLabel(world.weather)}</strong>
             </div>
           </div>
 
@@ -561,43 +582,46 @@ export function WorldShell() {
               01
             </div>
             <div>
-              <span>World Log</span>
-              <p>{worldLogMessage ?? `Current location: ${location.name}`}</p>
+              <span>{UI_COPY.world.log}</span>
+              <p>
+                {worldLogMessage ??
+                  UI_COPY.world.currentLocationLog(location.name)}
+              </p>
             </div>
-            <time>Day {world.day}</time>
+            <time>{UI_COPY.world.dayLabel(world.day)}</time>
           </div>
         </section>
 
         <aside className={`${styles.panel} ${styles.statePanel}`}>
-          <PanelTitle eyebrow="Live state" title={world.name} />
+          <PanelTitle eyebrow={UI_COPY.world.liveState} title={world.name} />
 
           <div className={styles.weatherCard}>
             <span className={styles.weatherGlyph} aria-hidden="true">
               ≋
             </span>
             <div>
-              <span>Weather</span>
-              <strong>{formatLabel(world.weather)}</strong>
+              <span>{UI_COPY.world.weather}</span>
+              <strong>{displayLabel(world.weather)}</strong>
             </div>
           </div>
 
           <dl className={styles.factList}>
             <div>
-              <dt>Day</dt>
+              <dt>{UI_COPY.world.day}</dt>
               <dd>{world.day}</dd>
             </div>
             <div>
-              <dt>Hour</dt>
+              <dt>{UI_COPY.world.hour}</dt>
               <dd>{formatHour(world.hour)}</dd>
             </div>
             <div>
-              <dt>Location</dt>
+              <dt>{UI_COPY.world.location}</dt>
               <dd>{location.name}</dd>
             </div>
           </dl>
 
           <section className={styles.nearbySection}>
-            <h3>Nearby NPCs</h3>
+            <h3>{UI_COPY.world.nearbyNpcs}</h3>
             {nearbyNpcs.length ? (
               <div className={styles.npcList}>
                 {nearbyNpcs.map((npc) => (
@@ -605,85 +629,86 @@ export function WorldShell() {
                     <div aria-hidden="true">{npc.name.slice(0, 1)}</div>
                     <p>
                       <strong>{npc.name}</strong>
-                      <span>{formatLabel(npc.occupation)}</span>
+                      <span>{displayLabel(npc.occupation)}</span>
                     </p>
                   </article>
                 ))}
               </div>
             ) : (
-              <p className={styles.emptyState}>No one nearby.</p>
+              <p className={styles.emptyState}>
+                {UI_COPY.world.noNearbyNpcs}
+              </p>
             )}
           </section>
 
           <details className={styles.developerView}>
-            <summary>Developer View</summary>
+            <summary>{UI_COPY.developer.title}</summary>
             <ul>
-              {[
-                "Action Interpreter",
-                "World Validator",
-                "Action Executor",
-                "Persistent State",
-              ].map((service) => (
+              {UI_COPY.developer.systems.map((service) => (
                 <li key={service}>
                   <span>{service}</span>
-                  <strong>Connected</strong>
+                  <strong>{UI_COPY.developer.connected}</strong>
                 </li>
               ))}
             </ul>
             <dl className={styles.pipelineTelemetry}>
               <div>
-                <dt>Pipeline Status</dt>
+                <dt>{UI_COPY.developer.pipelineStatus}</dt>
                 <dd>
                   {actionPreview
-                    ? formatLabel(actionPreview.pipeline_status)
-                    : "Idle"}
+                    ? PIPELINE_STATUS_COPY[actionPreview.pipeline_status]
+                    : UI_COPY.developer.idle}
                 </dd>
               </div>
               <div>
-                <dt>Validation Status</dt>
+                <dt>{UI_COPY.developer.validationStatus}</dt>
                 <dd>
                   {actionPreview?.validation
-                    ? formatLabel(actionPreview.validation.overall_status)
-                    : "Not Run"}
+                    ? VALIDATION_STATUS_COPY[
+                        actionPreview.validation.overall_status
+                      ]
+                    : UI_COPY.developer.notRun}
                 </dd>
               </div>
               <div>
-                <dt>Execution Type</dt>
+                <dt>{UI_COPY.developer.executionType}</dt>
                 <dd>
                   {actionPreview?.execution_plan
-                    ? formatLabel(actionPreview.execution_plan.execution_type)
-                    : "Not Planned"}
+                    ? EXECUTION_TYPE_COPY[
+                        actionPreview.execution_plan.execution_type
+                      ]
+                    : UI_COPY.developer.notPlanned}
                 </dd>
               </div>
               <div>
-                <dt>Mutation Count</dt>
+                <dt>{UI_COPY.developer.mutationCount}</dt>
                 <dd>
                   {actionPreview?.execution_plan?.proposed_mutations.length ?? 0}
                 </dd>
               </div>
               <div>
-                <dt>Commit Status</dt>
-                <dd>{formatLabel(commitStatus)}</dd>
+                <dt>{UI_COPY.developer.commitStatus}</dt>
+                <dd>{COMMIT_STATUS_COPY[commitStatus]}</dd>
               </div>
             </dl>
-            <p>Only validated pipeline metadata is shown.</p>
+            <p>{UI_COPY.developer.metadataNote}</p>
           </details>
         </aside>
       </div>
 
       <section className={styles.actionConsole}>
         <div className={styles.consoleHeading}>
-          <span>Natural language action</span>
+          <span>{UI_COPY.action.section}</span>
           <p aria-live="polite">{consoleMessage}</p>
         </div>
         <form onSubmit={handleActionSubmit}>
-          <label htmlFor="action-input">What do you do?</label>
+          <label htmlFor="action-input">{UI_COPY.action.label}</label>
           <div className={styles.actionRow}>
             <textarea
               id="action-input"
               value={actionInput}
               onChange={(event) => handleActionInputChange(event.target.value)}
-              placeholder="Type anything you want to attempt..."
+              placeholder={UI_COPY.action.placeholder}
               rows={2}
               disabled={committing}
             />
@@ -691,7 +716,11 @@ export function WorldShell() {
               type="submit"
               disabled={!actionInput.trim() || previewLoading || committing}
             >
-              <span>{previewLoading ? "Previewing..." : "Preview"}</span>
+              <span>
+                {previewLoading
+                  ? UI_COPY.action.previewing
+                  : UI_COPY.action.preview}
+              </span>
               <span aria-hidden="true">→</span>
             </button>
           </div>

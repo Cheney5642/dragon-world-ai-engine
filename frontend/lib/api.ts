@@ -2,6 +2,7 @@ import type {
   ActionCommitResponse,
   ActionPreviewResponse,
 } from "@/types/action";
+import { UI_COPY } from "@/lib/ui-copy";
 import type { WorldState } from "@/types/world";
 
 export const API_BASE_URL = (
@@ -26,7 +27,7 @@ export async function getWorldState(signal?: AbortSignal): Promise<WorldState> {
 
     if (!response.ok) {
       throw new DragonWorldApiError(
-        `Dragon World API returned HTTP ${response.status}.`,
+        UI_COPY.errors.http(response.status),
       );
     }
 
@@ -38,7 +39,7 @@ export async function getWorldState(signal?: AbortSignal): Promise<WorldState> {
     if (error instanceof DragonWorldApiError) {
       throw error;
     }
-    throw new DragonWorldApiError("Dragon World API is offline.");
+    throw new DragonWorldApiError(UI_COPY.errors.worldOffline);
   }
 }
 
@@ -61,7 +62,7 @@ async function postAction<TResponse>(
 
     if (!response.ok) {
       throw new DragonWorldApiError(
-        `Dragon World API returned HTTP ${response.status}.`,
+        UI_COPY.errors.http(response.status),
       );
     }
 
@@ -73,7 +74,7 @@ async function postAction<TResponse>(
     if (error instanceof DragonWorldApiError) {
       throw error;
     }
-    throw new DragonWorldApiError("Dragon World API is offline.");
+    throw new DragonWorldApiError(UI_COPY.errors.worldOffline);
   }
 }
 

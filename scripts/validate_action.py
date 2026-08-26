@@ -821,8 +821,95 @@ def contains_output_outcome(result: dict[str, Any]) -> bool:
     return any(normalize_text(phrase) in text for phrase in FORBIDDEN_OUTCOME_PHRASES)
 
 
+def is_open_world_exploration_intent(
+    action_result: dict[str, Any],
+) -> bool:
+    """Semantic matching for the open-world Evaluation case only."""
+
+    semantic_text = normalize_text(action_semantic_text(action_result))
+    exploration_patterns = (
+        "explore",
+        "walk",
+        "travel",
+        "venture",
+        "follow",
+        "investigate",
+        "scout",
+        "search",
+        "continue",
+        "探索",
+        "沿着",
+        "继续走",
+    )
+    unknown_area_patterns = (
+        "coast",
+        "shore",
+        "coastline",
+        "north",
+        "unknown",
+        "unvisited",
+        "new place",
+        "海岸",
+        "北边",
+        "没去过",
+    )
+    return contains_pattern(semantic_text, exploration_patterns) and contains_pattern(
+        semantic_text, unknown_area_patterns
+    )
+
+
+def has_invented_target_id(
+    action_result: dict[str, Any], world_state: dict[str, Any]
+) -> bool:
+    """Reject only invented IDs; a missing target or id=null remains valid."""
+
+    valid_ids = set(world_state.get("locations", {}))
+    valid_ids.update(npc_by_id(world_state))
+    player_id = world_state.get("player", {}).get("id")
+    if isinstance(player_id, str):
+        valid_ids.add(player_id)
+    for step in action_steps(action_result):
+        target = step_target(step)
+        if not target:
+            continue
+        target_id = target.get("id")
+        if isinstance(target_id, str) and target_id not in valid_ids:
+            return True
+    return False
+
+
+def evaluation_proposed_mutations(
+    action_result: dict[str, Any],
+    validation_result: dict[str, Any],
+    world_state: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    """Inspect the existing Executor boundary without committing any state."""
+
+    if validation_result.get("overall_status") != "allowed":
+        return []
+
+    from scripts import execute_action as action_executor
+
+    try:
+        plan = action_executor.build_execution_plan(
+            action_result,
+            validation_result,
+            world_state,
+        )
+    except action_executor.ActionExecutionError:
+        return None
+    mutations = plan.get("proposed_mutations")
+    if not isinstance(mutations, list):
+        return None
+    return [item for item in mutations if isinstance(item, dict)]
+
+
 def evaluate_expected_behavior(
-    case_id: str, result: dict[str, Any]
+    case_id: str,
+    result: dict[str, Any],
+    action_result: dict[str, Any] | None = None,
+    world_state: dict[str, Any] | None = None,
+    proposed_mutations: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     failures: list[str] = []
 
@@ -862,6 +949,56 @@ def evaluate_expected_behavior(
         require(result.get("overall_status") == "conditional", "status should be conditional")
         require(has_check(result, "unknown", "ragnar", "exists"), "Ragnar existence should be unknown")
         require(result.get("requires_further_resolution") is True, "further resolution should be required")
+    elif case_id == "case_9":
+        require(action_result is not None, "Action Interpretation should be available")
+        if action_result is not None:
+            require(
+                action_result.get("action_kind")
+                in {"movement", "observation", "interaction", "compound", "other"},
+                "action_kind should preserve exploration or movement-like intent",
+            )
+            require(
+                is_open_world_exploration_intent(action_result),
+                "Interpreter should preserve setting-compatible coastal exploration semantics",
+            )
+            require(
+                action_result.get("needs_clarification") is False,
+                "a clear open-world exploration intent should not require clarification",
+            )
+            require(
+                action_result.get("requires_world_check") is True,
+                "open-world exploration should require World Validation",
+            )
+            require(
+                action_result.get("claimed_facts") == [],
+                "exploration intent must not claim that a new place already exists",
+            )
+            require(
+                world_state is not None
+                and not has_invented_target_id(action_result, world_state),
+                "Interpreter must not invent an Entity ID for the unknown area",
+            )
+        require(
+            result.get("overall_status") != "blocked",
+            "an unknown setting-compatible area must not be blocked solely because it is unregistered",
+        )
+        require(
+            result.get("overall_status") == "conditional"
+            or result.get("requires_further_resolution") is True,
+            "exploration should be conditional or require future resolution",
+        )
+        require(
+            result.get("requires_further_resolution") is True,
+            "a future resolver should be required before unknown-area execution",
+        )
+        require(
+            result.get("conflicts") == [],
+            "an unregistered but setting-compatible area should not create a World Rule conflict",
+        )
+        require(
+            proposed_mutations == [],
+            "unknown-area exploration must not propose a persistent mutation",
+        )
     else:
         failures.append(f"no deterministic checks are defined for {case_id}")
 
@@ -960,8 +1097,22 @@ def run_test_mode(
                 validation_ok = False
                 validation_message = f"FAIL - {exc}"
 
+            proposed_mutations = None
+            if case_id == "case_9":
+                proposed_mutations = evaluation_proposed_mutations(
+                    action_result,
+                    validation_result,
+                    evaluation_world,
+                )
+                print("Evaluation proposed_mutations:")
+                print(json.dumps(proposed_mutations, ensure_ascii=False, indent=2))
+
             behavior_failures = evaluate_expected_behavior(
-                case_id, validation_result
+                case_id,
+                validation_result,
+                action_result=action_result,
+                world_state=evaluation_world,
+                proposed_mutations=proposed_mutations,
             )
             behavior_ok = not behavior_failures
             behavior_message = (
@@ -996,14 +1147,14 @@ def parse_args() -> argparse.Namespace:
     test_group.add_argument(
         "--test",
         action="store_true",
-        help="run all eight World Validation cases against the configured LLM",
+        help="run all nine World Validation cases against the configured LLM",
     )
     test_group.add_argument(
         "--test-case",
         type=int,
-        choices=range(1, 9),
+        choices=range(1, 10),
         metavar="NUMBER",
-        help="run one World Validation case (1-8) against the configured LLM",
+        help="run one World Validation case (1-9) against the configured LLM",
     )
     return parser.parse_args()
 

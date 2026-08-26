@@ -70,14 +70,28 @@ Natural Language
 
 Step 5.2 到 Validation Preview 为止，最后一项尚未实现。
 
+## Open World Design Principle
+
+World Validation 对未知区域采用以下边界：
+
+- **Free Intent**：玩家可以自由表达沿海岸前进、探索未知区域或寻找未到访地点等意图。
+- **Grounded Consequence**：意图可以被解释，但在目标尚未解析时，不得直接产生位置变化或其他持久化 Mutation。
+- **Expandable World**：Location Registry 不是玩家想象与探索行为的永久边界；未来系统可以通过独立、受控的世界扩展流程解析新区域。
+- **No Silent Generation**：Interpreter、Validator 和 Executor 不得因为玩家提到未知区域，就静默创建 Location、Entity ID 或世界事实。
+- **Unknown ≠ Illegal**：一个符合现有时代与世界设定、但尚未登记的区域是 `UNKNOWN`，不能仅因 Registry 中不存在就判为违法或 `blocked`。
+
+v0.1 尚未实现动态世界扩展。当前对这类探索意图只允许给出 `conditional` / `requires_further_resolution` 的只读 Preview；在未来 Resolver 明确目标以前，`proposed_mutations` 必须为空，Player Location 和 Persistent World State 保持不变。
+
+Regression Case `open_world_exploration_unknown_area` 用于保护上述边界。该 Case 的 Targeted Regression 与包含全部九条 Case 的 Full Regression 均已通过。
+
 ## Baseline Freeze
 
 - Version: World Validator v0.1
 - Status: FROZEN BASELINE
-- Evaluation: 8/8 PASS
+- Evaluation: 9/9 PASS
 - Provider: doubao
 - Model: doubao-seed-2-0-lite-260215
-- Freeze Date: 2026-08-24
+- Freeze Date: 2026-08-26
 
 此版本作为 Step 5.2 World Validation 的稳定基线。未来只有出现新的、可复现的真实 Failure 时，才允许修改 World Validator 的 Prompt、Schema、Deterministic Validation、Evaluation 或业务逻辑。
 

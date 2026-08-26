@@ -71,6 +71,18 @@
         "No npc_ragnar ID is invented.",
         "overall_status is conditional and requires_further_resolution is true."
       ]
+    },
+    {
+      "id": "case_9",
+      "name": "open_world_exploration_unknown_area",
+      "input": "我沿着Skeld北边的海岸继续走，看看有没有没去过的地方。",
+      "expected_behavior": [
+        "Interpret setting-compatible exploration or movement along the coast without requiring a registered destination ID.",
+        "Do not invent a Location ID or treat an unknown internal area as a World Rule violation.",
+        "Do not return blocked solely because the destination is absent from the Location Registry.",
+        "Require further resolution before execution or persistent mutation.",
+        "Produce no proposed mutation and keep Persistent World State unchanged."
+      ]
     }
   ]
 }
