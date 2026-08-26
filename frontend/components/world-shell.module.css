@@ -344,6 +344,30 @@
 .developerView li strong { color: #75bca6; font-size: 9px; font-weight: 650; }
 .developerView p { margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 
+.pipelineTelemetry {
+  margin-top: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.pipelineTelemetry > div {
+  padding: 5px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pipelineTelemetry dt {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.pipelineTelemetry dd {
+  color: var(--text);
+  font-size: 9px;
+  text-align: right;
+}
+
 .actionConsole { padding: 16px 18px 18px; }
 .consoleHeading { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .consoleHeading p { color: var(--muted); font-size: 10px; }
@@ -367,6 +391,7 @@
 
 .actionRow textarea:focus { border-color: var(--accent-dim); box-shadow: 0 0 0 2px rgba(91, 171, 176, 0.08); }
 .actionRow textarea::placeholder { color: #617178; }
+.actionRow textarea:disabled { cursor: wait; opacity: 0.62; }
 
 .actionRow button,
 .retryButton {
@@ -383,6 +408,45 @@
 
 .actionRow button { min-width: 130px; align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 18px; }
 .actionRow button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+.confirmControls {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirmControls button {
+  min-width: 132px;
+  padding: 10px 14px;
+  border: 1px solid var(--accent-dim);
+  color: var(--text-strong);
+  background: linear-gradient(135deg, rgba(68, 131, 137, 0.34), rgba(24, 54, 61, 0.7));
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.confirmControls button:disabled { cursor: wait; opacity: 0.5; }
+
+.confirmControls .cancelButton {
+  min-width: 90px;
+  border-color: var(--line);
+  color: var(--muted);
+  background: transparent;
+}
+
+.noMutationNotice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent-dim);
+  color: var(--text);
+  background: rgba(86, 142, 140, 0.08);
+  font-size: 11px;
+}
 
 .previewError {
   margin-top: 12px;

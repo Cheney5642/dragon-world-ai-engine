@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import {
   API_BASE_URL,
+  commitAction,
   DragonWorldApiError,
   getWorldState,
   previewAction,
@@ -20,6 +21,14 @@ const LOCATION_MOODS: Record<string, string> = {
   old_ruins: "Ancient stone remains",
   whispering_woods: "Wild forest territory",
 };
+
+type CommitStatus =
+  | "not_requested"
+  | "ready"
+  | "committing"
+  | "committed"
+  | "not_committed"
+  | "failed";
 
 function formatLabel(value: string | null | undefined): string {
   if (!value) return "Unknown";
@@ -38,6 +47,28 @@ function formatInventoryItem(item: InventoryEntry): string {
   return item.quantity && item.quantity > 1
     ? `${name} × ${item.quantity}`
     : name;
+}
+
+function isCommitEligible(preview: ActionPreviewResponse): boolean {
+  return (
+    preview.pipeline_status === "ready" &&
+    preview.validation?.overall_status === "allowed" &&
+    preview.execution_plan?.can_execute === true &&
+    preview.execution_plan.proposed_mutations.length > 0
+  );
+}
+
+function needsNoPersistentMutation(preview: ActionPreviewResponse): boolean {
+  return (
+    preview.pipeline_status === "no_mutation" ||
+    (preview.pipeline_status === "ready" &&
+      preview.execution_plan?.can_execute === true &&
+      preview.execution_plan.proposed_mutations.length === 0)
+  );
+}
+
+function actionErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof DragonWorldApiError ? error.message : fallback;
 }
 
 function PanelTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
@@ -78,7 +109,19 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function ActionPreviewPanel({ preview }: { preview: ActionPreviewResponse }) {
+function ActionPreviewPanel({
+  preview,
+  canConfirm,
+  committing,
+  onConfirm,
+  onCancel,
+}: {
+  preview: ActionPreviewResponse;
+  canConfirm: boolean;
+  committing: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
   const { interpretation, validation, execution_plan: plan } = preview;
 
   return (
@@ -215,11 +258,34 @@ function ActionPreviewPanel({ preview }: { preview: ActionPreviewResponse }) {
           )}
         </article>
       </div>
+
+      {needsNoPersistentMutation(preview) ? (
+        <p className={styles.noMutationNotice}>
+          No persistent world mutation required.
+        </p>
+      ) : null}
+
+      <div className={styles.confirmControls}>
+        {canConfirm || committing ? (
+          <button type="button" onClick={onConfirm} disabled={committing}>
+            {committing ? "Committing..." : "Confirm Action"}
+          </button>
+        ) : null}
+        <button
+          className={styles.cancelButton}
+          type="button"
+          onClick={onCancel}
+          disabled={committing}
+        >
+          Cancel
+        </button>
+      </div>
     </section>
   );
 }
 
 export function WorldShell() {
+  const commitInFlightRef = useRef(false);
   const [worldState, setWorldState] = useState<WorldState | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -227,8 +293,13 @@ export function WorldShell() {
   const [actionInput, setActionInput] = useState("");
   const [actionPreview, setActionPreview] =
     useState<ActionPreviewResponse | null>(null);
+  const [previewedInput, setPreviewedInput] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [committing, setCommitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [commitStatus, setCommitStatus] =
+    useState<CommitStatus>("not_requested");
+  const [worldLogMessage, setWorldLogMessage] = useState<string | null>(null);
   const [consoleMessage, setConsoleMessage] = useState(
     "AI Action Pipeline — Preview Only",
   );
@@ -258,29 +329,113 @@ export function WorldShell() {
 
   async function handleActionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const input = actionInput.trim();
-    if (!input || previewLoading) return;
+    const input = actionInput;
+    if (!input.trim() || previewLoading || committing) return;
 
     setPreviewLoading(true);
-    setPreviewError(null);
+    setActionError(null);
     setActionPreview(null);
+    setPreviewedInput(null);
+    setCommitStatus("not_requested");
     setConsoleMessage("Interpreting action...");
 
     try {
       const preview = await previewAction(input);
       setActionPreview(preview);
+      setPreviewedInput(input);
+      setCommitStatus(isCommitEligible(preview) ? "ready" : "not_requested");
       setConsoleMessage(
         `Preview ready · ${formatLabel(preview.pipeline_status)}`,
       );
     } catch (error: unknown) {
-      setPreviewError(
-        error instanceof DragonWorldApiError
-          ? error.message
-          : "Action preview could not be generated.",
+      setActionError(
+        actionErrorMessage(error, "Action preview could not be generated."),
       );
       setConsoleMessage("Action preview failed");
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  function handleActionInputChange(value: string) {
+    setActionInput(value);
+    setActionError(null);
+    if (!actionPreview && previewedInput === null) return;
+
+    setActionPreview(null);
+    setPreviewedInput(null);
+    setCommitStatus("not_requested");
+    setConsoleMessage("Action changed · Preview required");
+  }
+
+  function handleCancelPreview() {
+    setActionPreview(null);
+    setPreviewedInput(null);
+    setActionError(null);
+    setCommitStatus("not_requested");
+    setConsoleMessage("Preview cancelled · Save was not modified");
+  }
+
+  async function handleConfirmAction() {
+    if (
+      !actionPreview ||
+      !previewedInput ||
+      committing ||
+      commitInFlightRef.current ||
+      commitStatus !== "ready" ||
+      !isCommitEligible(actionPreview)
+    ) {
+      return;
+    }
+
+    const committedInput = previewedInput;
+    const previousLocation = worldState?.current_location.name ?? "Unknown";
+    let serverCommitted = false;
+
+    commitInFlightRef.current = true;
+    setCommitting(true);
+    setCommitStatus("committing");
+    setActionError(null);
+    setConsoleMessage("Server is revalidating and committing action...");
+
+    try {
+      const result = await commitAction(committedInput);
+      setActionPreview(result);
+
+      if (!result.committed) {
+        setPreviewedInput(null);
+        setCommitStatus("not_committed");
+        setConsoleMessage(
+          `Action was not committed · ${formatLabel(result.pipeline_status)}`,
+        );
+        return;
+      }
+
+      serverCommitted = true;
+      setCommitStatus("committed");
+      const latestWorld = await getWorldState();
+      setWorldState(latestWorld);
+      setWorldLogMessage(
+        `Action committed: moved from ${previousLocation} to ${latestWorld.current_location.name}.`,
+      );
+      setActionPreview(null);
+      setPreviewedInput(null);
+      setActionError(null);
+      setActionInput("");
+      setConsoleMessage("Action committed · World State refreshed");
+    } catch (error: unknown) {
+      setCommitStatus(serverCommitted ? "committed" : "failed");
+      setActionError(
+        serverCommitted
+          ? "Action was committed, but the latest World State could not be refreshed."
+          : actionErrorMessage(error, "Action could not be committed."),
+      );
+      setConsoleMessage(
+        serverCommitted ? "World refresh failed" : "Action commit failed",
+      );
+    } finally {
+      commitInFlightRef.current = false;
+      setCommitting(false);
     }
   }
 
@@ -292,6 +447,11 @@ export function WorldShell() {
   const { player, world, current_location: location, nearby_npcs: nearbyNpcs } =
     worldState;
   const locationMood = LOCATION_MOODS[location.id] ?? "Dragon Isles territory";
+  const canConfirm =
+    actionPreview !== null &&
+    previewedInput !== null &&
+    commitStatus === "ready" &&
+    isCommitEligible(actionPreview);
 
   return (
     <main className={styles.shell}>
@@ -402,7 +562,7 @@ export function WorldShell() {
             </div>
             <div>
               <span>World Log</span>
-              <p>Current location: {location.name}</p>
+              <p>{worldLogMessage ?? `Current location: ${location.name}`}</p>
             </div>
             <time>Day {world.day}</time>
           </div>
@@ -470,7 +630,43 @@ export function WorldShell() {
                 </li>
               ))}
             </ul>
-            <p>Preview pipeline connected. Commit remains disabled.</p>
+            <dl className={styles.pipelineTelemetry}>
+              <div>
+                <dt>Pipeline Status</dt>
+                <dd>
+                  {actionPreview
+                    ? formatLabel(actionPreview.pipeline_status)
+                    : "Idle"}
+                </dd>
+              </div>
+              <div>
+                <dt>Validation Status</dt>
+                <dd>
+                  {actionPreview?.validation
+                    ? formatLabel(actionPreview.validation.overall_status)
+                    : "Not Run"}
+                </dd>
+              </div>
+              <div>
+                <dt>Execution Type</dt>
+                <dd>
+                  {actionPreview?.execution_plan
+                    ? formatLabel(actionPreview.execution_plan.execution_type)
+                    : "Not Planned"}
+                </dd>
+              </div>
+              <div>
+                <dt>Mutation Count</dt>
+                <dd>
+                  {actionPreview?.execution_plan?.proposed_mutations.length ?? 0}
+                </dd>
+              </div>
+              <div>
+                <dt>Commit Status</dt>
+                <dd>{formatLabel(commitStatus)}</dd>
+              </div>
+            </dl>
+            <p>Only validated pipeline metadata is shown.</p>
           </details>
         </aside>
       </div>
@@ -486,25 +682,34 @@ export function WorldShell() {
             <textarea
               id="action-input"
               value={actionInput}
-              onChange={(event) => setActionInput(event.target.value)}
+              onChange={(event) => handleActionInputChange(event.target.value)}
               placeholder="Type anything you want to attempt..."
               rows={2}
+              disabled={committing}
             />
             <button
               type="submit"
-              disabled={!actionInput.trim() || previewLoading}
+              disabled={!actionInput.trim() || previewLoading || committing}
             >
               <span>{previewLoading ? "Previewing..." : "Preview"}</span>
               <span aria-hidden="true">→</span>
             </button>
           </div>
         </form>
-        {previewError ? (
+        {actionError ? (
           <p className={styles.previewError} role="alert">
-            {previewError}
+            {actionError}
           </p>
         ) : null}
-        {actionPreview ? <ActionPreviewPanel preview={actionPreview} /> : null}
+        {actionPreview ? (
+          <ActionPreviewPanel
+            preview={actionPreview}
+            canConfirm={canConfirm}
+            committing={committing}
+            onConfirm={handleConfirmAction}
+            onCancel={handleCancelPreview}
+          />
+        ) : null}
       </section>
     </main>
   );
