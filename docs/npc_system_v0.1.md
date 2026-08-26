@@ -254,3 +254,64 @@ Failure Reproduction
 → Targeted Regression
 → Full Regression
 ```
+
+## NPC Interaction Event Layer v0.1
+
+Step 6.4-A 在已通过 Grounding Validation 的单轮 NPC Response 之后增加一个确定性、只读的 Interaction Event Builder：
+
+```text
+NPC Context + Player Utterance
+→ Grounded NPC Response
+→ Interaction Event Builder
+→ Structured Interaction Event Preview
+→ Future Memory / Relationship Evaluator
+```
+
+Builder 只消费当前已有的 NPC Context、玩家原始输入和 NPC Response，不重新读取 World State、不调用 LLM，也不拥有 Commit 权限。Event 记录 NPC、Player、发生时间和地点、双方本轮表达、轻量 Topic、Player Claims、Memory Candidate 与保守的 Relationship Signal。
+
+### Interaction Event != Memory
+
+Interaction Event 回答“这次互动发生了什么”，每次符合条件的对话都可以产生 Event。Memory 则回答“NPC 是否应该长期记住这件事”。`memory_candidate=true` 只表示未来 Memory Evaluator 值得检查该事件，不会创建 Memory、写入 Save 或保证该事件被记住。
+
+v0.1 仅把长期目标、重要个人计划、重大承诺或显著冲突标为候选。普通问候和知识问答默认不是 Memory Candidate，不因为每次对话都有 Event 就全部进入记忆。
+
+### Player Claim != World Truth
+
+`player_claims` 只保存玩家明确提出的事实主张或个人意图，并使用 `claims`、`declares`、`intends` 等归属措辞。例如“Bjorn 是国王”记录为“Eirik claims that Bjorn is a king”，而不是“Bjorn is a king”。普通问句不会被误记为 Claim。
+
+Interaction Event Schema 没有 verified fact、Knowledge Update 或 World Mutation 字段，因此 Player Claim 既不会更新 NPC Knowledge，也不会成为 Persistent World Truth。未来系统若要接受某项事实，仍需独立证据、World Validation 与受控 Commit。
+
+### Relationship Signal != Mutation
+
+`relationship_signal` 只有：
+
+- `none`
+- `potential_positive`
+- `potential_negative`
+
+它是供未来 Relationship Evaluator 使用的保守候选信号，不包含 `trust_delta`、`familiarity` 数值、Relationship Type 或任何写入操作。含有关系宣称的对话不会仅凭玩家一句话建立配偶或其他客观关系；语义不足时优先输出 `none`。
+
+### Step 6.4-B 输入边界
+
+未来 Memory / Relationship Runtime 可以把 Interaction Event 当作经过 Schema Validation 的候选输入，再分别决定是否写入 Memory 或提出 Relationship Mutation。Step 6.4-A 本身不持久化 Event Log，不实现 Memory Retrieval、Relationship Mutation、NPC Knowledge Update、Quest Update 或任何 World State Mutation。
+
+## Step 6.4-A Interaction Event Model v0.1 Frozen Baseline
+
+- **Version**: Step 6.4-A Interaction Event Model v0.1
+- **Status**: FROZEN BASELINE
+- **Freeze Date**: 2026-08-27
+- **Golden Cases**: 8/8 PASS
+- **Event Layer Targeted Tests**: 11/11 PASS
+- **Full Offline Regression**: 62/62 PASS
+- **Schema Validation**: PASS
+- **Read-only Hash Check**: PASS
+
+冻结基线遵循以下不可混淆的边界：
+
+- **Interaction Event != Memory**：Event 只描述本轮互动；是否长期记忆由未来 Memory Runtime 决定。
+- **Player Claim != World Truth**：玩家主张保持归属信息，不能直接成为客观世界事实。
+- **Player Intention != Executed Action**：玩家表达计划或愿望不代表行动已经发生，也不保证未来成功执行。
+- **Relationship Signal != Relationship Mutation**：候选信号不能直接改变 Trust、Familiarity、Attitude 或 Relationship Type。
+- **Interaction Event Layer is Read-only**：该层没有 Event Persistence、Memory Write、Relationship Commit 或 World State Mutation 权限。
+
+下一阶段为 **Step 6.4-B Persistent NPC Memory v0.1**。该能力尚未实现，本次冻结不开始其设计或开发。

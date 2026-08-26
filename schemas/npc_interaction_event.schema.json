@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_interaction_event.schema.json",
+  "title": "NPC Interaction Event v0.1",
+  "description": "单次 NPC 对话发生内容的结构化、只读记录；它不是 Memory，也不包含任何状态写入指令。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "npc_id",
+    "player_id",
+    "world_context",
+    "player_utterance",
+    "npc_response",
+    "topic",
+    "player_claims",
+    "memory_candidate",
+    "relationship_signal"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^npc_event_[0-9a-f]{32}$",
+      "description": "当前 Interaction Event 的唯一 UUID 标识；v0.1 不持久化 Event Log。"
+    },
+    "event_type": {
+      "const": "npc_dialogue"
+    },
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "world_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "world_day",
+        "world_hour",
+        "location_id"
+      ],
+      "properties": {
+        "world_day": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "world_hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "location_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "player_utterance": {
+      "type": "string",
+      "minLength": 1,
+      "description": "玩家本轮原始输入；它是不受信任的表达，不是 World Truth。"
+    },
+    "npc_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "response_type",
+        "speech"
+      ],
+      "properties": {
+        "response_type": {
+          "type": "string",
+          "enum": [
+            "answer",
+            "question",
+            "uncertain",
+            "disagreement",
+            "reaction",
+            "refusal"
+          ]
+        },
+        "speech": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "topic": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "轻量自然语言或 snake_case 主题；不建立固定大型 Ontology。"
+    },
+    "player_claims": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "玩家明确提出的事实主张或个人意图，措辞必须保留 claim/intention 边界，不能表示已验证事实。"
+    },
+    "memory_candidate": {
+      "type": "boolean",
+      "description": "仅表示未来 Memory Evaluator 是否值得检查；不执行 Memory Write。"
+    },
+    "relationship_signal": {
+      "type": "string",
+      "enum": [
+        "none",
+        "potential_positive",
+        "potential_negative"
+      ],
+      "description": "保守的潜在关系信号；不是 Relationship Mutation 或数值变化。"
+    }
+  }
+}

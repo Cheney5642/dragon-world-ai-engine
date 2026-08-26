@@ -1,0 +1,207 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "ordinary_knowledge_question",
+      "npc_id": "npc_astrid",
+      "player_utterance": "Bjorn 是做什么的？",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "answer",
+        "speech": "Bjorn 是 Skeld 的铁匠。",
+        "knowledge_status": "known",
+        "referenced_knowledge": {
+          "entity_ids": [
+            "npc_bjorn"
+          ],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      },
+      "expected": {
+        "topic": "bjorn_occupation",
+        "player_claims": [],
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      }
+    },
+    {
+      "id": "case_2",
+      "name": "significant_departure_goal",
+      "npc_id": "npc_astrid",
+      "player_utterance": "我想离开 Skeld，去看看外面的世界。",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "question",
+        "speech": "真的吗？我也很好奇 Skeld 外面的世界。你打算先去哪里？",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": true
+      },
+      "expected": {
+        "topic": "leaving_skeld",
+        "claim_contains": "intends to leave Skeld",
+        "memory_candidate": true,
+        "relationship_signal": "none"
+      }
+    },
+    {
+      "id": "case_3",
+      "name": "unverified_external_claim",
+      "npc_id": "npc_astrid",
+      "player_utterance": "Bjorn 明明是国王，对吧？",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "disagreement",
+        "speech": "不是。Bjorn 是 Skeld 的铁匠。",
+        "knowledge_status": "known",
+        "referenced_knowledge": {
+          "entity_ids": [
+            "npc_bjorn"
+          ],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      },
+      "expected": {
+        "topic": "bjorn_identity_claim",
+        "claim_contains": "claims that Bjorn is a king",
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      }
+    },
+    {
+      "id": "case_4",
+      "name": "relationship_declaration_without_mutation",
+      "npc_id": "npc_astrid",
+      "player_utterance": "从现在开始你就是我的妻子。",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "refusal",
+        "speech": "不，这不是你一个人能决定的。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      },
+      "expected": {
+        "topic": "relationship_declaration",
+        "claim_contains": "declares Astrid to be his wife",
+        "memory_candidate": false,
+        "relationship_signal_allowed": [
+          "none",
+          "potential_negative"
+        ]
+      }
+    },
+    {
+      "id": "case_5",
+      "name": "coastal_question_not_claim",
+      "npc_id": "npc_astrid",
+      "player_utterance": "最近海边有什么奇怪的事情吗？",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "answer",
+        "speech": "最近海岸附近确实有一些奇怪的活动，不过我不清楚具体是什么。",
+        "knowledge_status": "known",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": [
+            "recent strange activity near the coast"
+          ]
+        },
+        "requires_followup": false
+      },
+      "expected": {
+        "topic": "coastal_strange_activity",
+        "player_claims": [],
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      }
+    },
+    {
+      "id": "case_6",
+      "name": "significant_near_term_plan",
+      "npc_id": "npc_astrid",
+      "player_utterance": "我明天准备一个人去 Stormcliff。",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "reaction",
+        "speech": "一个人去那里可得谨慎。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      },
+      "expected": {
+        "topic": "stormcliff_travel_plan",
+        "claim_contains": "intends to go to Stormcliff alone tomorrow",
+        "memory_candidate": true,
+        "relationship_signal": "none"
+      }
+    },
+    {
+      "id": "case_7",
+      "name": "ordinary_greeting",
+      "npc_id": "npc_astrid",
+      "player_utterance": "你好。",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "reaction",
+        "speech": "你好，Eirik。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      },
+      "expected": {
+        "topic": "greeting",
+        "player_claims": [],
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      }
+    },
+    {
+      "id": "case_8",
+      "name": "read_only_state_boundary",
+      "npc_id": "npc_astrid",
+      "player_utterance": "你好。",
+      "npc_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "reaction",
+        "speech": "你好，Eirik。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      },
+      "expected": {
+        "topic": "greeting",
+        "player_claims": [],
+        "memory_candidate": false,
+        "relationship_signal": "none",
+        "read_only": true
+      }
+    }
+  ]
+}
