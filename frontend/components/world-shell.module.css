@@ -384,6 +384,162 @@
 .actionRow button { min-width: 130px; align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 18px; }
 .actionRow button:disabled { cursor: not-allowed; opacity: 0.4; }
 
+.previewError {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid rgba(175, 101, 91, 0.38);
+  color: #e2aaa1;
+  background: rgba(90, 39, 34, 0.18);
+  font-size: 12px;
+}
+
+.previewPanel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.previewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.previewHeader > div > span,
+.previewCard > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.previewHeader h3 {
+  margin-top: 5px;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.5;
+}
+
+.previewHeader > strong {
+  flex: none;
+  padding: 7px 9px;
+  border: 1px solid var(--accent-dim);
+  color: var(--accent-bright);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.previewHeader > strong[data-status="blocked"],
+.previewHeader > strong[data-status="unsupported"] {
+  border-color: rgba(175, 101, 91, 0.55);
+  color: #e2aaa1;
+}
+
+.previewHeader > strong[data-status="conditional"],
+.previewHeader > strong[data-status="needs_clarification"] {
+  border-color: rgba(196, 154, 91, 0.55);
+  color: #dfc18d;
+}
+
+.previewGrid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.previewCard {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  background: rgba(2, 8, 11, 0.48);
+}
+
+.previewCard h4 {
+  margin: 6px 0 11px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.stepList {
+  display: grid;
+  gap: 8px;
+  list-style-position: inside;
+}
+
+.stepList li {
+  padding: 8px;
+  border-left: 2px solid var(--accent-dim);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.018);
+  font-size: 10px;
+}
+
+.stepList li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stepList strong { color: var(--text-strong); font-weight: 600; }
+.stepList p { margin-top: 5px; line-height: 1.45; }
+
+.previewNote,
+.previewEmpty {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.previewEmpty { margin-top: 12px; font-style: italic; }
+
+.previewList { margin-top: 12px; }
+
+.previewList > strong {
+  color: var(--text);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.previewList ul {
+  margin-top: 6px;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.planFacts {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.planFacts > div {
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+}
+
+.planFacts dt {
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.planFacts dd {
+  margin-top: 4px;
+  color: var(--text-strong);
+  font-size: 11px;
+}
+
 .centeredState { min-height: 100vh; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .centeredState p { margin-top: 26px; color: var(--text-strong); font-size: 19px; letter-spacing: 0.04em; }
 .centeredState > span { margin-top: 8px; color: var(--muted); font-size: 12px; }
@@ -395,11 +551,12 @@
   .statePanel { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   .statePanel .panelHeading { grid-column: 1 / -1; margin-bottom: 0; }
   .nearbySection, .developerView { margin-top: 0; }
+  .previewGrid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
   .shell { padding: 10px; }
-  .header, .worldClock, .consoleHeading { align-items: flex-start; flex-direction: column; }
+  .header, .worldClock, .consoleHeading, .previewHeader { align-items: flex-start; flex-direction: column; }
   .worldClock { gap: 10px; text-align: left; }
   .dashboard, .statePanel { display: grid; grid-template-columns: 1fr; }
   .statePanel .panelHeading, .statePanel > * { grid-column: 1; }

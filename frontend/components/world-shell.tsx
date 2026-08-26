@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
-import { API_BASE_URL, getWorldState } from "@/lib/api";
+import {
+  API_BASE_URL,
+  DragonWorldApiError,
+  getWorldState,
+  previewAction,
+} from "@/lib/api";
+import type { ActionPreviewResponse } from "@/types/action";
 import type { InventoryEntry, WorldState } from "@/types/world";
 
 import styles from "./world-shell.module.css";
@@ -72,14 +78,159 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+function ActionPreviewPanel({ preview }: { preview: ActionPreviewResponse }) {
+  const { interpretation, validation, execution_plan: plan } = preview;
+
+  return (
+    <section className={styles.previewPanel} aria-label="Action preview result">
+      <header className={styles.previewHeader}>
+        <div>
+          <span>Action Pipeline Preview</span>
+          <h3>{interpretation.raw_input}</h3>
+        </div>
+        <strong data-status={preview.pipeline_status}>
+          {formatLabel(preview.pipeline_status)}
+        </strong>
+      </header>
+
+      <div className={styles.previewGrid}>
+        <article className={styles.previewCard}>
+          <span>01 · Interpretation</span>
+          <h4>{formatLabel(interpretation.action_kind)}</h4>
+          <ol className={styles.stepList}>
+            {interpretation.steps.map((step, index) => (
+              <li key={`${step.verb}-${index}`}>
+                <div>
+                  <strong>{step.verb}</strong>
+                  <span>
+                    {step.target?.name ?? step.target?.id ?? "No target"}
+                  </span>
+                </div>
+                {step.goal ? <p>Goal: {step.goal}</p> : null}
+                {step.method ? <p>Method: {step.method}</p> : null}
+              </li>
+            ))}
+          </ol>
+          {interpretation.speech ? (
+            <p className={styles.previewNote}>
+              Speech: “{interpretation.speech}”
+            </p>
+          ) : null}
+          {interpretation.claimed_facts.length ? (
+            <div className={styles.previewList}>
+              <strong>Claimed facts</strong>
+              <ul>
+                {interpretation.claimed_facts.map((claim) => (
+                  <li key={claim}>{claim}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </article>
+
+        <article className={styles.previewCard}>
+          <span>02 · World Validation</span>
+          {validation ? (
+            <>
+              <h4>{formatLabel(validation.overall_status)}</h4>
+              <p className={styles.previewNote}>
+                {validation.validated_interpretation}
+              </p>
+              <div className={styles.previewList}>
+                <strong>Checks</strong>
+                <ul>
+                  {validation.checks.map((check, index) => (
+                    <li key={`${check.fact}-${index}`}>
+                      {check.fact} — {formatLabel(check.status)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {validation.conflicts.length ? (
+                <div className={styles.previewList}>
+                  <strong>Conflicts</strong>
+                  <ul>
+                    {validation.conflicts.map((conflict) => (
+                      <li key={conflict}>{conflict}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {validation.missing_requirements.length ? (
+                <div className={styles.previewList}>
+                  <strong>Missing requirements</strong>
+                  <ul>
+                    {validation.missing_requirements.map((requirement) => (
+                      <li key={requirement}>{requirement}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className={styles.previewEmpty}>
+              Validation was not reached by this preview.
+            </p>
+          )}
+        </article>
+
+        <article className={styles.previewCard}>
+          <span>03 · Execution Plan</span>
+          {plan ? (
+            <>
+              <h4>{formatLabel(plan.execution_type)}</h4>
+              <p className={styles.previewNote}>{plan.execution_notes}</p>
+              <dl className={styles.planFacts}>
+                <div>
+                  <dt>Can execute</dt>
+                  <dd>{plan.can_execute ? "Yes" : "No"}</dd>
+                </div>
+                <div>
+                  <dt>Mutations</dt>
+                  <dd>{plan.proposed_mutations.length}</dd>
+                </div>
+              </dl>
+              {plan.proposed_mutations.length ? (
+                <div className={styles.previewList}>
+                  <strong>Proposed mutations</strong>
+                  <ul>
+                    {plan.proposed_mutations.map((mutation, index) => (
+                      <li key={`${mutation.field}-${index}`}>
+                        {mutation.field}: {mutation.old_value} → {mutation.new_value}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {plan.requires_next_system ? (
+                <p className={styles.previewNote}>
+                  Next system: {plan.requires_next_system}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className={styles.previewEmpty}>
+              No execution plan was produced.
+            </p>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
 export function WorldShell() {
   const [worldState, setWorldState] = useState<WorldState | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [actionInput, setActionInput] = useState("");
+  const [actionPreview, setActionPreview] =
+    useState<ActionPreviewResponse | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [consoleMessage, setConsoleMessage] = useState(
-    "AI Action Pipeline — Connecting",
+    "AI Action Pipeline — Preview Only",
   );
 
   useEffect(() => {
@@ -105,9 +256,32 @@ export function WorldShell() {
     setRetryKey((value) => value + 1);
   }
 
-  function handleActionSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleActionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setConsoleMessage("Action interaction will be connected in Step 5.4.3.");
+    const input = actionInput.trim();
+    if (!input || previewLoading) return;
+
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setActionPreview(null);
+    setConsoleMessage("Interpreting action...");
+
+    try {
+      const preview = await previewAction(input);
+      setActionPreview(preview);
+      setConsoleMessage(
+        `Preview ready · ${formatLabel(preview.pipeline_status)}`,
+      );
+    } catch (error: unknown) {
+      setPreviewError(
+        error instanceof DragonWorldApiError
+          ? error.message
+          : "Action preview could not be generated.",
+      );
+      setConsoleMessage("Action preview failed");
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   if (loading) return <LoadingState />;
@@ -296,7 +470,7 @@ export function WorldShell() {
                 </li>
               ))}
             </ul>
-            <p>Live pipeline telemetry arrives in Step 5.4.3.</p>
+            <p>Preview pipeline connected. Commit remains disabled.</p>
           </details>
         </aside>
       </div>
@@ -316,12 +490,21 @@ export function WorldShell() {
               placeholder="Type anything you want to attempt..."
               rows={2}
             />
-            <button type="submit" disabled={!actionInput.trim()}>
-              <span>Send</span>
+            <button
+              type="submit"
+              disabled={!actionInput.trim() || previewLoading}
+            >
+              <span>{previewLoading ? "Previewing..." : "Preview"}</span>
               <span aria-hidden="true">→</span>
             </button>
           </div>
         </form>
+        {previewError ? (
+          <p className={styles.previewError} role="alert">
+            {previewError}
+          </p>
+        ) : null}
+        {actionPreview ? <ActionPreviewPanel preview={actionPreview} /> : null}
       </section>
     </main>
   );
