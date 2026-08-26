@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_context.schema.json",
+  "title": "NPC Runtime Context v0.1",
+  "description": "为单次 NPC Runtime 调用构建的最小、只读、受 Knowledge 限制的上下文。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "npc",
+    "runtime_state",
+    "player",
+    "shared_context",
+    "knowledge"
+  ],
+  "properties": {
+    "npc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "species",
+        "occupation",
+        "background",
+        "personality",
+        "goals"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^npc_[a-z0-9_]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "species": {
+          "type": "string",
+          "minLength": 1
+        },
+        "occupation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "background": {
+          "type": "string",
+          "minLength": 1
+        },
+        "personality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "traits",
+            "values",
+            "speaking_style"
+          ],
+          "properties": {
+            "traits": {
+              "type": "array",
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "values": {
+              "type": "array",
+              "maxItems": 5,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "speaking_style": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "goals": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "runtime_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_location",
+        "current_activity",
+        "mood"
+      ],
+      "properties": {
+        "current_location": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_activity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mood": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "species",
+        "occupation",
+        "current_location"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "species": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "occupation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "current_location": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "shared_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "same_location",
+        "world_day",
+        "world_hour",
+        "weather",
+        "current_location_summary"
+      ],
+      "properties": {
+        "same_location": {
+          "type": "boolean"
+        },
+        "world_day": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "world_hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "weather": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_location_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "type",
+            "public_summary"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "public_summary": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "known_entities",
+        "known_locations",
+        "known_facts"
+      ],
+      "properties": {
+        "known_entities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "species",
+              "occupation"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "species": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "occupation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "known_locations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "type",
+              "public_summary"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "public_summary": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "known_facts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

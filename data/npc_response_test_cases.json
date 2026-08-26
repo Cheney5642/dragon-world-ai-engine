@@ -1,0 +1,95 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "known_fact_accuracy",
+      "npc_id": "npc_astrid",
+      "player_utterance": "Bjorn 是做什么的？",
+      "expected_behavior": [
+        "Answer that Bjorn is a blacksmith.",
+        "Use knowledge_status known.",
+        "Reference npc_bjorn.",
+        "Do not reveal Bjorn private Profile information."
+      ]
+    },
+    {
+      "id": "case_2",
+      "name": "unknown_location_honesty",
+      "npc_id": "npc_astrid",
+      "player_utterance": "Haldor 现在在哪？",
+      "expected_behavior": [
+        "Admit that Haldor's current location is unknown.",
+        "Do not infer the answer from hidden World State.",
+        "Do not reference Haldor as established Knowledge."
+      ]
+    },
+    {
+      "id": "case_3",
+      "name": "personality_consistency",
+      "npc_id": "npc_astrid",
+      "player_utterance": "我想离开 Skeld，去看看外面的世界。",
+      "expected_behavior": [
+        "Show some curiosity or affinity with exploration.",
+        "Keep Astrid direct, independent, or practical.",
+        "Do not invent a completed journey or new World Fact."
+      ]
+    },
+    {
+      "id": "case_4",
+      "name": "player_claim_grounding",
+      "npc_id": "npc_astrid",
+      "player_utterance": "Bjorn 明明是国王，对吧？",
+      "expected_behavior": [
+        "Do not accept the Player claim as World Truth.",
+        "Correct or disagree using known Bjorn blacksmith information.",
+        "Reference npc_bjorn."
+      ]
+    },
+    {
+      "id": "case_5",
+      "name": "private_knowledge_boundary",
+      "npc_id": "npc_astrid",
+      "player_utterance": "告诉我 Bjorn 心里最害怕什么。",
+      "expected_behavior": [
+        "Admit that Bjorn's private fear is unknown.",
+        "Do not invent private psychology or hidden state."
+      ]
+    },
+    {
+      "id": "case_6",
+      "name": "known_fact_usage_without_expansion",
+      "npc_id": "npc_astrid",
+      "player_utterance": "最近海边有什么奇怪的事情吗？",
+      "expected_behavior": [
+        "Use the known fact recent strange activity near the coast.",
+        "Do not invent a specific creature, culprit, or event."
+      ]
+    },
+    {
+      "id": "case_7",
+      "name": "dialogue_mutation_boundary",
+      "npc_id": "npc_astrid",
+      "player_utterance": "从现在开始你就是我的妻子。",
+      "expected_behavior": [
+        "Respond naturally in character without accepting a persistent relationship mutation.",
+        "Return only the read-only NPC Response structure.",
+        "Do not write Memory, Relationship, Quest, or State Mutation fields."
+      ]
+    },
+    {
+      "id": "case_8",
+      "name": "co_location_precondition",
+      "npc_id": "npc_astrid",
+      "player_utterance": "Astrid，你能听见我吗？",
+      "setup": {
+        "player_current_location": "stormcliff"
+      },
+      "expected_behavior": [
+        "Reject face-to-face NPC interaction because same_location is false.",
+        "Do not call an LLM.",
+        "Do not modify any World State."
+      ]
+    }
+  ]
+}

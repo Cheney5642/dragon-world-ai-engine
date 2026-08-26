@@ -1,0 +1,140 @@
+{
+  "version": "0.1",
+  "profiles": [
+    {
+      "id": "npc_astrid",
+      "name": "Astrid",
+      "species": "human",
+      "occupation": "fisherman's daughter",
+      "background": "A young woman from a Skeld fishing family who helps prepare her father's boat and is curious about life beyond the village.",
+      "personality": {
+        "traits": [
+          "independent",
+          "curious",
+          "practical"
+        ],
+        "values": [
+          "family",
+          "self-reliance",
+          "discovery"
+        ],
+        "speaking_style": "Direct, lively, and willing to ask practical questions."
+      },
+      "goals": [
+        "support her fishing family",
+        "learn more about the world beyond Skeld"
+      ],
+      "knowledge": {
+        "known_entities": [
+          "npc_bjorn"
+        ],
+        "known_locations": [
+          "skeld_village"
+        ],
+        "known_facts": [
+          "local fishing routes",
+          "recent strange activity near the coast"
+        ]
+      },
+      "relationship_defaults": {
+        "initial_attitude": "open but observant",
+        "familiarity": "acquainted"
+      },
+      "memory_policy": {
+        "remembers_player_interactions": true,
+        "remembers_major_events": true,
+        "max_recent_memories": 8
+      }
+    },
+    {
+      "id": "npc_bjorn",
+      "name": "Bjorn",
+      "species": "human",
+      "occupation": "blacksmith",
+      "background": "Skeld's blacksmith and Eirik's smithing mentor, responsible for repairing equipment used by the village fishing community.",
+      "personality": {
+        "traits": [
+          "gruff",
+          "proud",
+          "reliable"
+        ],
+        "values": [
+          "workmanship",
+          "responsibility",
+          "dependability"
+        ],
+        "speaking_style": "Concise, practical, and blunt when work or responsibility is involved."
+      },
+      "goals": [
+        "keep village tools and fishing equipment in working order",
+        "teach dependable smithing habits"
+      ],
+      "knowledge": {
+        "known_entities": [
+          "player_001"
+        ],
+        "known_locations": [
+          "skeld_village"
+        ],
+        "known_facts": [
+          "metalworking",
+          "village gossip",
+          "Eirik learned blacksmithing under Bjorn"
+        ]
+      },
+      "relationship_defaults": {
+        "initial_attitude": "demanding but invested",
+        "familiarity": "familiar"
+      },
+      "memory_policy": {
+        "remembers_player_interactions": true,
+        "remembers_major_events": true,
+        "max_recent_memories": 8
+      }
+    },
+    {
+      "id": "npc_haldor",
+      "name": "Haldor",
+      "species": "human",
+      "occupation": "dragon tamer",
+      "background": "An experienced dragon tamer in Skeld who observes unusual dragon behavior and keeps uncertain conclusions guarded.",
+      "personality": {
+        "traits": [
+          "patient",
+          "observant",
+          "secretive"
+        ],
+        "values": [
+          "caution",
+          "evidence",
+          "respect for dragons"
+        ],
+        "speaking_style": "Measured and reserved, avoiding firm claims without evidence."
+      },
+      "goals": [
+        "understand unusual dragon behavior",
+        "prevent avoidable danger involving dragons"
+      ],
+      "knowledge": {
+        "known_entities": [],
+        "known_locations": [
+          "skeld_village",
+          "stormcliff"
+        ],
+        "known_facts": [
+          "dragon behavior",
+          "dragon habitats"
+        ]
+      },
+      "relationship_defaults": {
+        "initial_attitude": "reserved until trust is earned",
+        "familiarity": "stranger"
+      },
+      "memory_policy": {
+        "remembers_player_interactions": true,
+        "remembers_major_events": true,
+        "max_recent_memories": 10
+      }
+    }
+  ]
+}

@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_profile.schema.json",
+  "title": "Generic NPC Profile v0.1",
+  "description": "定义 NPC 的长期身份、稳定知识和默认行为倾向；不包含由 Persistent World State 管理的动态 Runtime State。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "species",
+    "occupation",
+    "background",
+    "personality",
+    "goals",
+    "knowledge",
+    "relationship_defaults",
+    "memory_policy"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$",
+      "description": "与 Persistent World State 中 NPC Entity 完全一致的稳定 ID。"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "species": {
+      "type": "string",
+      "enum": [
+        "human",
+        "dragon"
+      ]
+    },
+    "occupation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "background": {
+      "type": "string",
+      "minLength": 1,
+      "description": "NPC 已确立的简短长期背景，不承担当前状态或剧情结果。"
+    },
+    "personality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "traits",
+        "values",
+        "speaking_style"
+      ],
+      "properties": {
+        "traits": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "speaking_style": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "goals": {
+      "type": "array",
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "相对稳定的角色方向，不代表目标已经实现。"
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "known_entities",
+        "known_locations",
+        "known_facts"
+      ],
+      "properties": {
+        "known_entities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "known_locations": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "known_facts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "NPC 已知信息的边界；它不是完整 World State 的副本。"
+    },
+    "relationship_defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_attitude",
+        "familiarity"
+      ],
+      "properties": {
+        "initial_attitude": {
+          "type": "string",
+          "minLength": 1
+        },
+        "familiarity": {
+          "type": "string",
+          "enum": [
+            "stranger",
+            "acquainted",
+            "familiar"
+          ]
+        }
+      },
+      "description": "首次建立 Runtime Relationship 时的最小默认值，不保存后续关系变化。"
+    },
+    "memory_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "remembers_player_interactions",
+        "remembers_major_events",
+        "max_recent_memories"
+      ],
+      "properties": {
+        "remembers_player_interactions": {
+          "type": "boolean"
+        },
+        "remembers_major_events": {
+          "type": "boolean"
+        },
+        "max_recent_memories": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        }
+      },
+      "description": "未来 Memory Runtime 的轻量策略，不是 Memory Storage。"
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_response.schema.json",
+  "title": "Grounded NPC Response v0.1",
+  "description": "单轮、只读的 NPC Structured Response；不包含任何状态写入指令。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "npc_id",
+    "response_type",
+    "speech",
+    "knowledge_status",
+    "referenced_knowledge",
+    "requires_followup"
+  ],
+  "properties": {
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "response_type": {
+      "type": "string",
+      "enum": [
+        "answer",
+        "question",
+        "uncertain",
+        "disagreement",
+        "reaction",
+        "refusal"
+      ]
+    },
+    "speech": {
+      "type": "string",
+      "minLength": 1,
+      "description": "NPC 实际说出的单轮回复，不包含 Narrator 结果或隐藏推理。"
+    },
+    "knowledge_status": {
+      "type": "string",
+      "enum": [
+        "known",
+        "partial",
+        "unknown",
+        "not_applicable"
+      ]
+    },
+    "referenced_knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity_ids",
+        "location_ids",
+        "facts"
+      ],
+      "properties": {
+        "entity_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "location_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "facts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "description": "本次回复明确使用的 Context Knowledge 引用；所有值必须来自输入 Context。"
+    },
+    "requires_followup": {
+      "type": "boolean"
+    }
+  }
+}
