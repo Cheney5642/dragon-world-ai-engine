@@ -602,3 +602,139 @@ Failure Reproduction
 ```
 
 任何修复都不得为单个 Case 破坏现有 Golden Cases、冻结的 NPC v0.1 Contracts、Step 5 Baseline、FastAPI Contract、Action Pipeline 或 World Rules。
+
+## NPC Relationship Runtime v0.1 — C1
+
+Step 6.4-C1 建立最小、可解释、可验证的 NPC × Player Relationship Domain Model，并从已验证 Interaction Event 生成只读 Relationship Change Preview：
+
+```text
+Current Relationship State
++ Validated Interaction Event
+→ Deterministic Relationship Evaluator
+→ Relationship Change Preview
+→ JSON Schema Validation
+→ Read-only Result
+```
+
+C1 没有 Relationship Store 或 Commit 权限。`current_relationship` 只来自 Mock / Fixture；Evaluator 不读取或修改 World State、Memory、NPC Profile 或 NPC Knowledge。
+
+### Relationship Dimensions
+
+第一版只包含以下维度：
+
+- `npc_id` + `player_id`：关系所属的 NPC / Player 组合。
+- `familiarity`：0–3，分别表示 stranger、acquainted、familiar、close。
+- `trust`：-2 到 +2 的保守信任范围。
+- `attitude`：`hostile`、`wary`、`neutral`、`warm`。
+
+模型不包含 Love、Romance、Marriage、Jealousy、Loyalty、Fear、Respect、Faction 或通用 `relationship_type`。这些维度没有被当前产品行为验证，不应提前加入。
+
+初始关系保持保守：未知 NPC / Player 默认 `familiarity=0`、`trust=0`、`attitude=neutral`；已有明确普通熟人背景时可使用 `familiarity=1`。C1 Fixture 将 Astrid 与同村的 Eirik 设为 acquainted，但不会因此赋予正 Trust 或 Warm Attitude。
+
+### Memory != Relationship
+
+Memory 保存 NPC 对过去信息或互动的主观记录；Relationship 是 NPC × Player 的累积状态。Evaluator 只消费已验证 Interaction Event，不从 Memory Content 计算关系，也不会因为 Recall 到一条 Memory 就改变 Familiarity、Trust 或 Attitude。
+
+Memory Pipeline 与 Relationship Preview 保持分离：
+
+```text
+Memory:       Interaction Event → Memory Evaluation → Optional Memory Commit
+Relationship: Interaction Event → Relationship Evaluation → Read-only Preview
+```
+
+### Why Ordinary Dialogue Does Not Increase Relationship
+
+Dialogue、Memory Candidate 和 `relationship_signal` 都不等于 Relationship Mutation。问候、普通问题、天气闲聊、无意义赞美或重复 Small Talk 默认输出 `no_change`。C1 不实现“聊天次数增加 Familiarity”，从数据模型上避免反复说“你好”刷关系。
+
+Evaluator 不采用 `potential_positive → trust +1` 的直接映射。Positive Preview 必须同时具备：
+
+- 已验证的 `npc_dialogue` Interaction Event；
+- 明确的 `potential_positive`；
+- 由上游 Grounded Authority 标记的有意义帮助 / 兑现承诺 / 保护或已验证行动结果 Topic；
+- `memory_candidate=true`；
+- 没有未验证 `player_claims`；
+- 与事件一致的 NPC Response Type。
+
+当前认可的 Grounded Topic 是一个小型、可审计的 Evaluation Vocabulary，不是从玩家原始文本重新推断。未来 Action Result 或 World Event 应由其权威层产生这类 Grounded Evidence。
+
+Negative Preview 同样需要明确 Signal、受支持的 Grounded / Direct Hostile Topic、重要事件标记和相符的 NPC Response。直接威胁本身是 NPC 在对话中观察到的互动；它可以降低 Trust，但不会证明威胁中宣称的外部伤害已经发生。
+
+### Player Claim Cannot Create Relationship Fact
+
+`player_claims` 保留玩家表达的归属边界。玩家单方面说“我救过你父亲”不能证明帮助已经发生，也不能提高 Trust。玩家宣布 Astrid 是妻子不能创建 Spouse、Marriage 或任何关系类型，也不会提高 Familiarity / Trust。
+
+Claim 可以成为未来 Evidence Resolver 的输入，但在被独立验证前始终不是 Relationship Fact。
+
+### Bounds and Preview
+
+所有数值都在 Evaluator 和 Schema 中双重限制：Familiarity 为 0–3，Trust 为 -2 到 +2。达到上限或下限后，相同方向的 Proposed Change 会被 Clamp，不会越界。
+
+Relationship Change Preview 明确包含：
+
+- `current_relationship`
+- `proposed_relationship`
+- Familiarity / Trust 的 Before、After、Delta 与 Changed 标记
+- Attitude 的 Before、After 与 Changed 标记
+- `decision`（`no_change` 或 `change_proposed`）
+- `source_event_id` 与确定性 Reason
+
+Preview 只描述建议，不代表已提交。相同 Current State 与 Interaction Event 始终生成相同结果；Evaluator 不使用随机数或 LLM。
+
+### Future Database Mapping
+
+未来关系型数据库可将 `npc_id + player_id` 作为 `npc_relationships` 的天然复合唯一键，并保存 Familiarity、Trust 与 Attitude。C1 Schema 已保持单记录、标量字段和明确边界，便于后续迁移；本阶段不创建 JSON Persistent Store、不接 PostgreSQL，也不引入 SQLAlchemy。Persistent Relationship Commit 留给 Step 6.4-C2。
+
+## Step 6.4-C1 — NPC Relationship State + Evaluation v0.1 Frozen Baseline
+
+- **Version**: Step 6.4-C1 — NPC Relationship State + Evaluation v0.1
+- **Status**: FROZEN BASELINE
+- **Freeze Date**: 2026-08-27
+- **Relationship Targeted Tests**: 13/13 PASS
+- **Golden Cases**: 8/8 PASS
+- **Full Offline Regression**: 116/116 PASS
+- **Python Syntax**: PASS
+- **JSON / Schema Validation**: PASS
+- **Protected Hash Check**: PASS
+
+冻结的 C1 Baseline 包含：
+
+- NPC × Player Relationship Domain Model
+- Familiarity、Trust 与 Attitude 的最小 Schema
+- Relationship Change Preview Contract
+- Deterministic Relationship Evaluator
+- Grounded Evidence Boundary
+- Anti-Farming / 防刷关系规则
+- Player Claim 与 Relationship Fact 分离
+- Relationship Signal 与 Relationship Mutation 分离
+- Familiarity / Trust Bounds Protection
+- Read-only Relationship Evaluation
+
+人工验收确认了三条关键行为：普通 Greeting 保持 `no_change`；系统已确认的 Meaningful Grounded Help 只产生小幅、可解释、受 Bounds 约束的正向变化；Unsupported Hero Claim 即使要求 NPC 信任玩家，也不会提高 Familiarity、Trust 或改变 Attitude。
+
+冻结基线继续遵守：
+
+- **Dialogue != Relationship Mutation**
+- **Memory != Relationship**
+- **Relationship Signal != Relationship Mutation**
+- **Player Claim != Relationship Fact**
+
+普通对话不能自动提高 Familiarity 或 Trust。只有具备充分 Grounded Evidence 的有意义事件，才能进入关系变化路径。C1 的 Evaluator 只产生 Preview，没有 Commit 权限。
+
+本冻结版本尚未实现：
+
+- Persistent Relationship Store
+- Relationship Commit
+- Relationship Context Injection
+- Relationship-aware NPC Response
+
+下一阶段为 **Step 6.4-C2 — Persistent Relationship Runtime**。在 C2 明确开始前，不得为 C1 增加持久化写入或隐式关系变化。
+
+冻结后只有可复现的真实 Failure 才允许修改 C1 Schema、Evaluator、Golden Dataset 或 Evaluation Rules。任何解冻必须遵循：
+
+```text
+Failure Reproduction
+→ New Regression Case
+→ Targeted Fix
+→ Targeted Regression
+→ Full Regression
+```

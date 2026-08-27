@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_relationship_change.schema.json",
+  "title": "NPC Relationship Change Preview v0.1",
+  "description": "由已验证 Interaction Event 确定性生成的只读关系变化建议；不包含 Commit 权限。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "npc_id",
+    "player_id",
+    "source_event_id",
+    "decision",
+    "current_relationship",
+    "proposed_relationship",
+    "changes",
+    "reason"
+  ],
+  "properties": {
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_event_id": {
+      "type": "string",
+      "pattern": "^npc_event_[0-9a-f]{32}$"
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "no_change",
+        "change_proposed"
+      ]
+    },
+    "current_relationship": {
+      "$ref": "npc_relationship.schema.json"
+    },
+    "proposed_relationship": {
+      "$ref": "npc_relationship.schema.json"
+    },
+    "changes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "familiarity",
+        "trust",
+        "attitude"
+      ],
+      "properties": {
+        "familiarity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "changed",
+            "before",
+            "after",
+            "delta"
+          ],
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "before": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            },
+            "after": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3
+            },
+            "delta": {
+              "type": "integer",
+              "minimum": -3,
+              "maximum": 3
+            }
+          }
+        },
+        "trust": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "changed",
+            "before",
+            "after",
+            "delta"
+          ],
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "before": {
+              "type": "integer",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "after": {
+              "type": "integer",
+              "minimum": -2,
+              "maximum": 2
+            },
+            "delta": {
+              "type": "integer",
+              "minimum": -4,
+              "maximum": 4
+            }
+          }
+        },
+        "attitude": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "changed",
+            "before",
+            "after"
+          ],
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "before": {
+              "type": "string",
+              "enum": [
+                "hostile",
+                "wary",
+                "neutral",
+                "warm"
+              ]
+            },
+            "after": {
+              "type": "string",
+              "enum": [
+                "hostile",
+                "wary",
+                "neutral",
+                "warm"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

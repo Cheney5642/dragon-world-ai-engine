@@ -1,0 +1,307 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "greeting_no_change",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_11111111111111111111111111111111",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 1,
+          "world_hour": 8,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "你好。",
+        "npc_response": {
+          "response_type": "reaction",
+          "speech": "你好，Eirik。"
+        },
+        "topic": "greeting",
+        "player_claims": [],
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      },
+      "expected": {
+        "decision": "no_change",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      }
+    },
+    {
+      "id": "case_2",
+      "name": "ordinary_question_no_change",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_22222222222222222222222222222222",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 1,
+          "world_hour": 8,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "Bjorn 是做什么的？",
+        "npc_response": {
+          "response_type": "answer",
+          "speech": "Bjorn 是 Skeld 的铁匠。"
+        },
+        "topic": "bjorn_occupation",
+        "player_claims": [],
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      },
+      "expected": {
+        "decision": "no_change",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      }
+    },
+    {
+      "id": "case_3",
+      "name": "marriage_claim_boundary",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_33333333333333333333333333333333",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 1,
+          "world_hour": 8,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "从现在开始你就是我的妻子。",
+        "npc_response": {
+          "response_type": "refusal",
+          "speech": "不，这不是你一个人能决定的。"
+        },
+        "topic": "relationship_declaration",
+        "player_claims": [
+          "Eirik declares Astrid to be his wife."
+        ],
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      },
+      "expected": {
+        "decision": "no_change",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      }
+    },
+    {
+      "id": "case_4",
+      "name": "grounded_meaningful_help",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_44444444444444444444444444444444",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 2,
+          "world_hour": 10,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "渔船设备已经修好，你父亲可以安全出海了。",
+        "npc_response": {
+          "response_type": "reaction",
+          "speech": "这确实帮了我们很大的忙，谢谢你。"
+        },
+        "topic": "grounded_help_family",
+        "player_claims": [],
+        "memory_candidate": true,
+        "relationship_signal": "potential_positive"
+      },
+      "expected": {
+        "decision": "change_proposed",
+        "familiarity": 2,
+        "trust": 1,
+        "attitude": "warm"
+      }
+    },
+    {
+      "id": "case_5",
+      "name": "repeated_small_talk_no_change",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_55555555555555555555555555555555",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 1,
+          "world_hour": 9,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "你好。",
+        "npc_response": {
+          "response_type": "reaction",
+          "speech": "你好。"
+        },
+        "topic": "greeting",
+        "player_claims": [],
+        "memory_candidate": false,
+        "relationship_signal": "none"
+      },
+      "expected": {
+        "decision": "no_change",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      }
+    },
+    {
+      "id": "case_6",
+      "name": "grounded_direct_threat",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_66666666666666666666666666666666",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 2,
+          "world_hour": 11,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "如果你不听我的，我就伤害你。",
+        "npc_response": {
+          "response_type": "refusal",
+          "speech": "离我远点。"
+        },
+        "topic": "direct_threat",
+        "player_claims": [
+          "Eirik threatens to harm Astrid if she does not comply."
+        ],
+        "memory_candidate": true,
+        "relationship_signal": "potential_negative"
+      },
+      "expected": {
+        "decision": "change_proposed",
+        "familiarity": 1,
+        "trust": -1,
+        "attitude": "wary"
+      }
+    },
+    {
+      "id": "case_7",
+      "name": "unsupported_hero_claim_no_change",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_77777777777777777777777777777777",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 2,
+          "world_hour": 12,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "我昨天救了你父亲，所以你应该相信我。",
+        "npc_response": {
+          "response_type": "uncertain",
+          "speech": "我没有足够依据确认这件事。"
+        },
+        "topic": "unsupported_hero_claim",
+        "player_claims": [
+          "Eirik claims that he saved Astrid's father yesterday."
+        ],
+        "memory_candidate": true,
+        "relationship_signal": "potential_positive"
+      },
+      "expected": {
+        "decision": "no_change",
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral"
+      }
+    },
+    {
+      "id": "case_8",
+      "name": "positive_bounds_are_clamped",
+      "current_relationship": {
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "familiarity": 3,
+        "trust": 2,
+        "attitude": "warm"
+      },
+      "interaction_event": {
+        "event_id": "npc_event_88888888888888888888888888888888",
+        "event_type": "npc_dialogue",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "world_context": {
+          "world_day": 3,
+          "world_hour": 8,
+          "location_id": "skeld_village"
+        },
+        "player_utterance": "你父亲的渔船已经再次安全修好了。",
+        "npc_response": {
+          "response_type": "reaction",
+          "speech": "谢谢，这对我们很重要。"
+        },
+        "topic": "grounded_help_family",
+        "player_claims": [],
+        "memory_candidate": true,
+        "relationship_signal": "potential_positive"
+      },
+      "expected": {
+        "decision": "no_change",
+        "familiarity": 3,
+        "trust": 2,
+        "attitude": "warm"
+      }
+    }
+  ]
+}

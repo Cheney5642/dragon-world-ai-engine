@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_relationship.schema.json",
+  "title": "NPC Relationship State v0.1",
+  "description": "NPC 与单个 Player 之间的最小累积关系状态；不是 NPC Profile 固有属性。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "npc_id",
+    "player_id",
+    "familiarity",
+    "trust",
+    "attitude"
+  ],
+  "properties": {
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "familiarity": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3,
+      "description": "0=stranger, 1=acquainted, 2=familiar, 3=close。"
+    },
+    "trust": {
+      "type": "integer",
+      "minimum": -2,
+      "maximum": 2,
+      "description": "保守的小范围信任值；-2 为最低，+2 为最高。"
+    },
+    "attitude": {
+      "type": "string",
+      "enum": [
+        "hostile",
+        "wary",
+        "neutral",
+        "warm"
+      ]
+    }
+  }
+}
