@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_memory_store.schema.json",
+  "title": "Persistent NPC Memory Store v0.1",
+  "description": "独立于 NPC Profile 和 Objective World State 的主观 NPC Memory Store。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "memories"
+  ],
+  "properties": {
+    "version": {
+      "const": "0.1"
+    },
+    "memories": {
+      "type": "array",
+      "items": {
+        "$ref": "npc_memory.schema.json"
+      }
+    }
+  }
+}

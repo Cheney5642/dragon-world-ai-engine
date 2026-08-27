@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_memory.schema.json",
+  "title": "Persistent NPC Memory Record v0.1",
+  "description": "由已验证 Interaction Event 构建的最小 NPC 主观记忆；它不是 World Truth。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "memory_id",
+    "npc_id",
+    "player_id",
+    "source_event_id",
+    "memory_type",
+    "content",
+    "epistemic_status",
+    "world_context",
+    "created_from_topic"
+  ],
+  "properties": {
+    "memory_id": {
+      "type": "string",
+      "pattern": "^npc_memory_[0-9a-f]{32}$"
+    },
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_event_id": {
+      "type": "string",
+      "pattern": "^npc_event_[0-9a-f]{32}$"
+    },
+    "memory_type": {
+      "type": "string",
+      "enum": [
+        "player_intention",
+        "player_claim",
+        "interaction"
+      ]
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "description": "NPC 应记住的简短语义，不默认保存完整 Dialogue Transcript。"
+    },
+    "epistemic_status": {
+      "type": "string",
+      "enum": [
+        "reported_by_player",
+        "observed_interaction"
+      ],
+      "description": "记录信息来源，不提供 verified_world_fact 状态。"
+    },
+    "world_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "world_day",
+        "world_hour",
+        "location_id"
+      ],
+      "properties": {
+        "world_day": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "world_hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "location_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "created_from_topic": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    }
+  }
+}

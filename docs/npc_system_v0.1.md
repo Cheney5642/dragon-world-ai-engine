@@ -315,3 +315,121 @@ Interaction Event Schema 没有 verified fact、Knowledge Update 或 World Mutat
 - **Interaction Event Layer is Read-only**：该层没有 Event Persistence、Memory Write、Relationship Commit 或 World State Mutation 权限。
 
 下一阶段为 **Step 6.4-B Persistent NPC Memory v0.1**。该能力尚未实现，本次冻结不开始其设计或开发。
+
+## Persistent NPC Memory v0.1
+
+Step 6.4-B1 增加 NPC 系统第一条受控 Persistent Write Path。它只把已验证且 `memory_candidate=true` 的 Interaction Event 转换为 Memory Preview，并在用户明确确认后写入独立 Memory Store：
+
+```text
+Validated Interaction Event
+→ Deterministic Memory Builder
+→ Memory Preview
+→ JSON Schema Validation
+→ Explicit User Confirmation
+→ Idempotency Check
+→ Atomic Commit
+→ data/saves/npc_memories.json
+```
+
+Memory Builder 不调用 LLM，不重新解释完整 Dialogue，也不读取隐藏 World State。它优先使用 Event 中已经归属给玩家的 `player_claims` 作为简短 Memory Content。
+
+### Interaction Event != Memory
+
+Interaction Event 记录一次互动的结构化事实；Memory 是从重要 Event 中筛选出的 NPC 主观长期记录。`memory_candidate=false` 时 Builder 明确返回 `No persistent memory required`，不能生成或提交 Memory。`memory_candidate=true` 也只允许生成 Preview，不能绕过确认自动写入。
+
+### Memory != World Truth
+
+Memory Store 保存 NPC 的主观经历与信息来源，不是 Objective Persistent World State。三类数据保持独立 Source of Truth：
+
+- `data/npcs/anchor_npcs.json`：NPC Profile，即 NPC 长期是谁。
+- `data/saves/current_world.json`：客观 Persistent World State。
+- `data/saves/npc_memories.json`：NPC Subjective Persistent Memory。
+
+Memory Commit 只允许修改 `npc_memories.json`，不能修改 NPC Profile、World State、NPC Knowledge、Quest 或 Relationship。
+
+### Player Claim 与 Epistemic Status
+
+来自 Player Claim 或 Player Intention 的 Memory 使用 `epistemic_status=reported_by_player`。例如：
+
+```text
+Eirik claims that Bjorn is a king.
+```
+
+只表示 Astrid 记得 Eirik 曾这样说，不表示 Bjorn 真的是国王。v0.1 不提供 `verified_world_fact`，也没有 Memory → Knowledge Promotion。
+
+`player_intention` 与已执行行动同样分离：Memory 可以记录 Eirik 打算明天独自去 Stormcliff，但不能写成他已经前往或必然会前往。
+
+### Source Event Provenance
+
+每条 Memory 保存 `source_event_id`，可追溯到产生它的 Interaction Event。`memory_id` 使用独立 UUID，不依赖数组位置。Store 使用 `(npc_id, source_event_id)` 作为幂等键，因此同一 NPC 不能重复提交同一个 Interaction Event，即使重复 Preview 生成了新的 `memory_id`。
+
+### Memory Preview、Confirmation 与 Atomic Commit
+
+Preview 阶段不读取或修改 Store。只有输入 `y` 或 `yes` 才进入 Commit；其他输入全部取消。Commit 会重新验证 Memory 与 Store Schema，并先检查幂等键。
+
+写入采用同目录临时文件：
+
+```text
+In-memory updated Store
+→ Write temporary JSON
+→ Flush + fsync
+→ Reload and validate temporary Store
+→ os.replace atomic replacement
+→ Reload and validate committed Store
+```
+
+若写入或替换失败，临时文件会被清理，原 Store 保持不变。
+
+### 为什么 v0.1 不做 Retrieval
+
+Step 6.4-B1 只完成 Memory Store、Preview 与 Safe Commit。Memory Retrieval、Memory Context Injection、多轮连续性、Relationship Runtime、Knowledge Update、Embedding、Vector Database 和 RAG 均未实现。Memory 不会自动加入 `NPC Context`；这些读取权限与选择策略留给 Step 6.4-B2。
+
+### Runtime Interaction Event → Memory Commit Bridge
+
+Memory Commit CLI 支持两个互斥来源：
+
+- `--case N`：`Source mode: golden_fixture`，用于固定 Golden Fixture Evaluation。
+- `--event-file <path>`：`Source mode: runtime_event`，用于加载外部 Runtime Interaction Event JSON。
+
+`Source mode` 表示 Memory CLI 的输入通道。`--event-file` 仍必须通过冻结的 `npc_interaction_event.schema.json`；它不能接收用户直接构造的 Memory JSON，也不能绕过 `memory_candidate` 检查。合法 Event 始终进入同一个 `build_memory_preview()`、Memory Schema Validation、Explicit Confirmation、Idempotency Check 与 Atomic Commit 链路。
+
+`memory_candidate=false` 的 Runtime Event 会返回 `No persistent memory required.`，不读取或修改 Memory Store。Player Claim 和 Player Intention 继续使用 Event 中已有的归属语义，Memory Builder 不重新解析自然语言，也不把它们升级为 World Truth。
+
+### Development Interaction Event Export
+
+`inspect_interaction_event.py` 支持 `--output-event <path>`，将已验证 Event 原子导出为临时开发 JSON。例如：
+
+```powershell
+python scripts/inspect_interaction_event.py --case 6 --output-event data/runtime/latest_interaction_event.json
+```
+
+若已有真实 NPC Response Runtime 输出文件，可使用自定义模式：
+
+```powershell
+python scripts/inspect_interaction_event.py `
+  --npc-id npc_astrid `
+  --utterance "我明天准备一个人去 Stormcliff。" `
+  --response-file data/runtime/latest_npc_response.json `
+  --output-event data/runtime/latest_interaction_event.json
+```
+
+导出文件只是开发态 Bridge 输入，不是 Persistent Event Log。`data/runtime/` 被 Git 忽略，导出功能也拒绝覆盖 World Seed、Current World、Anchor Profiles 或 NPC Memory Store。
+
+### Development Memory Store Reset
+
+Golden Fixture 验收数据不会自动清理。开发者必须显式执行：
+
+```powershell
+python scripts/reset_npc_memories.py --confirm
+```
+
+Reset 会先验证现有 Store，再复用同一 Atomic Writer 写入：
+
+```json
+{
+  "version": "0.1",
+  "memories": []
+}
+```
+
+没有 `--confirm` 时 Reset 被拒绝。该命令只允许替换 `npc_memories.json`，不会修改 World State、NPC Profile、Knowledge 或任何冻结契约。自动化测试只对 Temporary Store 执行 Reset；正式 Store 必须由用户人工决定何时清理。

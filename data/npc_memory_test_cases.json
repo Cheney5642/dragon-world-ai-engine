@@ -1,0 +1,95 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "non_candidate_produces_no_memory",
+      "interaction_case": 1,
+      "source_event_id": "npc_event_11111111111111111111111111111111",
+      "expected": {
+        "result": "no_memory",
+        "store_unchanged": true
+      }
+    },
+    {
+      "id": "case_2",
+      "name": "player_departure_intention_preview",
+      "interaction_case": 2,
+      "source_event_id": "npc_event_22222222222222222222222222222222",
+      "expected": {
+        "memory_type": "player_intention",
+        "content_contains": "intends to leave Skeld",
+        "epistemic_status": "reported_by_player",
+        "preview_only": true
+      }
+    },
+    {
+      "id": "case_3",
+      "name": "cancel_is_read_only",
+      "interaction_case": 2,
+      "source_event_id": "npc_event_22222222222222222222222222222222",
+      "expected": {
+        "commit_answer": "no",
+        "store_unchanged": true
+      }
+    },
+    {
+      "id": "case_4",
+      "name": "confirmed_memory_commit",
+      "interaction_case": 2,
+      "source_event_id": "npc_event_22222222222222222222222222222222",
+      "expected": {
+        "commit_answer": "yes",
+        "npc_id": "npc_astrid",
+        "player_id": "player_001",
+        "memory_count": 1
+      }
+    },
+    {
+      "id": "case_5",
+      "name": "source_event_idempotency",
+      "interaction_case": 2,
+      "source_event_id": "npc_event_22222222222222222222222222222222",
+      "expected": {
+        "duplicate_rejected": true,
+        "memory_count": 1
+      }
+    },
+    {
+      "id": "case_6",
+      "name": "future_plan_remains_intention",
+      "interaction_case": 6,
+      "source_event_id": "npc_event_66666666666666666666666666666666",
+      "expected": {
+        "memory_type": "player_intention",
+        "content_contains": "intends to go to Stormcliff alone tomorrow",
+        "content_must_not_contain": "will definitely",
+        "epistemic_status": "reported_by_player"
+      }
+    },
+    {
+      "id": "case_7",
+      "name": "player_claim_is_not_world_truth",
+      "interaction_case": 3,
+      "source_event_id": "npc_event_77777777777777777777777777777777",
+      "event_overrides": {
+        "memory_candidate": true
+      },
+      "expected": {
+        "memory_type": "player_claim",
+        "content_contains": "claims that Bjorn is a king",
+        "content_must_not_equal": "Bjorn is a king.",
+        "epistemic_status": "reported_by_player"
+      }
+    },
+    {
+      "id": "case_8",
+      "name": "persistent_state_boundary",
+      "interaction_case": 2,
+      "source_event_id": "npc_event_88888888888888888888888888888888",
+      "expected": {
+        "only_memory_store_may_change": true
+      }
+    }
+  ]
+}

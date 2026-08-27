@@ -8,7 +8,11 @@ __pycache__/
 
 # Runtime Persistent World State and interrupted atomic-write files
 data/saves/current_world.json
+data/saves/npc_memories.json
 data/saves/*.tmp
+
+# Local development Interaction Event exports (not a Persistent Event Log)
+data/runtime/
 
 # Local Microsoft Office lock files
 ~$*.xlsx
