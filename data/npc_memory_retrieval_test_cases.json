@@ -1,0 +1,170 @@
+{
+  "version": "0.1",
+  "memory_fixtures": [
+    {
+      "memory_id": "npc_memory_11111111111111111111111111111111",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "source_event_id": "npc_event_11111111111111111111111111111111",
+      "memory_type": "player_intention",
+      "content": "Eirik intends to leave Skeld and explore the world beyond it.",
+      "epistemic_status": "reported_by_player",
+      "world_context": {
+        "world_day": 1,
+        "world_hour": 8,
+        "location_id": "skeld_village"
+      },
+      "created_from_topic": "leaving_skeld"
+    },
+    {
+      "memory_id": "npc_memory_22222222222222222222222222222222",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "source_event_id": "npc_event_22222222222222222222222222222222",
+      "memory_type": "player_intention",
+      "content": "Eirik intends to go to Stormcliff alone tomorrow.",
+      "epistemic_status": "reported_by_player",
+      "world_context": {
+        "world_day": 2,
+        "world_hour": 9,
+        "location_id": "skeld_village"
+      },
+      "created_from_topic": "stormcliff_travel_plan"
+    },
+    {
+      "memory_id": "npc_memory_33333333333333333333333333333333",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "source_event_id": "npc_event_33333333333333333333333333333333",
+      "memory_type": "player_claim",
+      "content": "Eirik claims that Bjorn is a king.",
+      "epistemic_status": "reported_by_player",
+      "world_context": {
+        "world_day": 2,
+        "world_hour": 10,
+        "location_id": "skeld_village"
+      },
+      "created_from_topic": "bjorn_identity_claim"
+    },
+    {
+      "memory_id": "npc_memory_44444444444444444444444444444444",
+      "npc_id": "npc_bjorn",
+      "player_id": "player_001",
+      "source_event_id": "npc_event_44444444444444444444444444444444",
+      "memory_type": "player_intention",
+      "content": "Eirik intends to stop blacksmithing.",
+      "epistemic_status": "reported_by_player",
+      "world_context": {
+        "world_day": 2,
+        "world_hour": 11,
+        "location_id": "skeld_village"
+      },
+      "created_from_topic": "leaving_blacksmithing"
+    },
+    {
+      "memory_id": "npc_memory_55555555555555555555555555555555",
+      "npc_id": "npc_astrid",
+      "player_id": "player_002",
+      "source_event_id": "npc_event_55555555555555555555555555555555",
+      "memory_type": "player_claim",
+      "content": "Another player claims to own a dragon.",
+      "epistemic_status": "reported_by_player",
+      "world_context": {
+        "world_day": 2,
+        "world_hour": 12,
+        "location_id": "skeld_village"
+      },
+      "created_from_topic": "dragon_ownership_claim"
+    }
+  ],
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "direct_recall",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "你还记得我之前说过想离开 Skeld 吗？",
+      "fixture_ids": [
+        "npc_memory_11111111111111111111111111111111",
+        "npc_memory_22222222222222222222222222222222"
+      ],
+      "expected_top_memory_id": "npc_memory_11111111111111111111111111111111"
+    },
+    {
+      "id": "case_2",
+      "name": "specific_recent_plan_recall",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我之前说准备去哪里来着？",
+      "fixture_ids": [
+        "npc_memory_11111111111111111111111111111111",
+        "npc_memory_22222222222222222222222222222222"
+      ],
+      "expected_top_memory_id": "npc_memory_22222222222222222222222222222222"
+    },
+    {
+      "id": "case_3",
+      "name": "irrelevant_memory",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "Bjorn 是做什么的？",
+      "fixture_ids": [
+        "npc_memory_11111111111111111111111111111111"
+      ],
+      "expected_memory_ids": []
+    },
+    {
+      "id": "case_4",
+      "name": "wrong_npc_isolation",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我是不是说过不想继续打铁？",
+      "fixture_ids": [
+        "npc_memory_44444444444444444444444444444444"
+      ],
+      "expected_memory_ids": []
+    },
+    {
+      "id": "case_5",
+      "name": "wrong_player_isolation",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我以前是不是说过自己有一条龙？",
+      "fixture_ids": [
+        "npc_memory_55555555555555555555555555555555"
+      ],
+      "expected_memory_ids": []
+    },
+    {
+      "id": "case_6",
+      "name": "false_player_claim_recall",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我以前是不是说过 Bjorn 是国王？",
+      "fixture_ids": [
+        "npc_memory_33333333333333333333333333333333"
+      ],
+      "expected_top_memory_id": "npc_memory_33333333333333333333333333333333"
+    },
+    {
+      "id": "case_7",
+      "name": "intention_is_not_completion",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我是不是已经去过 Stormcliff 了？",
+      "fixture_ids": [
+        "npc_memory_22222222222222222222222222222222"
+      ],
+      "expected_top_memory_id": "npc_memory_22222222222222222222222222222222"
+    },
+    {
+      "id": "case_8",
+      "name": "empty_memory",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "你还记得我以前说过什么吗？",
+      "fixture_ids": [],
+      "expected_memory_ids": []
+    }
+  ]
+}

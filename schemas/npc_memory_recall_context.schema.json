@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_memory_recall_context.schema.json",
+  "title": "NPC Memory Recall Context v0.1",
+  "description": "针对一次 NPC Response 调用检索出的最小主观记忆视图；不是 World Truth 或新的持久化状态。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "npc_id",
+    "player_id",
+    "retrieved_memories"
+  ],
+  "properties": {
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retrieved_memories": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "memory_id",
+          "memory_type",
+          "content",
+          "epistemic_status",
+          "world_context",
+          "created_from_topic",
+          "relevance_score"
+        ],
+        "properties": {
+          "memory_id": {
+            "type": "string",
+            "pattern": "^npc_memory_[0-9a-f]{32}$"
+          },
+          "memory_type": {
+            "type": "string",
+            "enum": [
+              "player_intention",
+              "player_claim",
+              "interaction"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          },
+          "epistemic_status": {
+            "type": "string",
+            "enum": [
+              "reported_by_player",
+              "observed_interaction"
+            ]
+          },
+          "world_context": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "world_day",
+              "world_hour",
+              "location_id"
+            ],
+            "properties": {
+              "world_day": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "world_hour": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 23
+              },
+              "location_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "created_from_topic": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "relevance_score": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

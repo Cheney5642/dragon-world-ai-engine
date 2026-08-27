@@ -433,3 +433,172 @@ Reset 会先验证现有 Store，再复用同一 Atomic Writer 写入：
 ```
 
 没有 `--confirm` 时 Reset 被拒绝。该命令只允许替换 `npc_memories.json`，不会修改 World State、NPC Profile、Knowledge 或任何冻结契约。自动化测试只对 Temporary Store 执行 Reset；正式 Store 必须由用户人工决定何时清理。
+
+## Memory Retrieval + Context Injection v0.1
+
+Step 6.4-B2 为 Persistent NPC Memory 增加一条独立、确定性、只读的读取路径：
+
+```text
+data/saves/npc_memories.json
+→ Memory Retriever
+→ Top-K Relevant Memories
+→ Memory Recall Context
+→ NPC Response Runtime v0.2
+→ Grounded Memory-aware Response Preview
+```
+
+它不会改变 Step 6.4-B1 的写入链路。一次 NPC Response 不能自动创建 Memory，也不能修改 World State、NPC Profile、Knowledge 或 Relationship。
+
+### Memory Store != Response Context
+
+Memory Store 是一个 NPC 的持久主观记录集合，不应该整库发送给模型。Retriever 首先以 `npc_id` 和 `player_id` 做硬过滤，防止其他 NPC 或其他玩家的 Memory 进入当前对话；随后才根据当前玩家输入进行相关性排序。
+
+Retriever 使用轻量确定性评分，不调用 LLM、Embedding 或外部服务。v0.1 评分信号包括：
+
+- `created_from_topic` 与玩家输入的语义词重合；
+- Memory Content 中的关键 Entity、Location 与行动主题；
+- `memory_type` 与当前询问方式的匹配；
+- 小幅 Recency 加权。
+
+默认只返回最相关的 0–3 条 Memory。没有相关 Memory 时返回空数组是正常结果；系统不会为了填满 Top-K 而注入无关过去，也不会因为存在 Memory 就在每轮主动提起。
+
+### Memory Recall Context
+
+Step 6.4-B2 不修改冻结的 `npc_context.schema.json`。检索结果使用独立的 `npc_memory_recall_context.schema.json`：
+
+```json
+{
+  "npc_id": "npc_astrid",
+  "player_id": "player_001",
+  "retrieved_memories": [
+    {
+      "memory_id": "npc_memory_...",
+      "memory_type": "player_intention",
+      "content": "Eirik intends to go to Stormcliff alone tomorrow.",
+      "epistemic_status": "reported_by_player",
+      "world_context": {
+        "world_day": 2,
+        "world_hour": 9,
+        "location_id": "skeld_village"
+      },
+      "created_from_topic": "stormcliff_travel_plan",
+      "relevance_score": 7.4
+    }
+  ]
+}
+```
+
+该结构是一次 Response 调用的最小主观回忆视图，不是新的 Persistent State，也不对最终玩家暴露 Retriever 内部推理。
+
+### Memory != World Truth
+
+`epistemic_status=reported_by_player` 始终表示“NPC 记得玩家曾这样说”，而不是“该内容已经被世界验证”。v0.2 Prompt 要求使用“你之前告诉我……”或“我记得你说过……”等归属表达。
+
+例如记忆 `Eirik claims that Bjorn is a king` 允许 Astrid 确认 Eirik 曾这样说，但不能把 `Bjorn is a king` 当作事实。Memory 不会被写入 `referenced_knowledge`，也不会自动 Promotion 为 NPC Knowledge。
+
+同样，`Eirik intends to go to Stormcliff alone tomorrow` 只表示一个过去表达的计划。它不能证明 Eirik 已经去过 Stormcliff、一定会去，或行动已经成功。当前 World State 与实际执行结果仍由各自的权威层决定。
+
+### Read / Write Separation
+
+Memory 的写入与读取是两条不耦合的管线：
+
+```text
+Write: Interaction Event → Memory Builder → Preview → Confirmation → Commit
+Read:  Memory Store → Deterministic Retriever → Recall Context → Response Preview
+```
+
+读取管线没有 Commit 权限。检查 CLI、v0.2 Response CLI 和自动测试都会对 Memory Store、Current World、World Seed 与 Anchor Profiles 做前后 Hash Check。
+
+### Response Runtime v0.1 vs v0.2
+
+- `npc/response_runtime.py` 与 `prompts/npc_response_system.md` 是冻结的无 Memory v0.1 Baseline，保持原样。
+- `npc/response_runtime_v0_2.py` 组合冻结的 NPC Context v0.1、独立 Memory Recall Context 和当前 Player Utterance。
+- `prompts/npc_response_memory_system_v0.2.md` 继承 v0.1 Grounding、Knowledge、人格与语言原则，并增加 Memory epistemic rules。
+- v0.2 输出仍复用冻结的 `npc_response.schema.json`，因此没有扩张 Response Mutation 权限。
+
+### 为什么 v0.1 不使用 Vector DB / RAG
+
+当前 Anchor NPC 与 Memory 规模很小，确定性过滤和轻量评分更容易审计、测试和复现，也能清楚验证 Privacy / Identity Boundary。Embedding、Vector Database、RAG Framework、Memory Summarization、Consolidation 与 Deletion Policy 都不是当前问题所必需；只有未来数据规模和真实 Failure 证明需要时才引入。
+
+### 离线 Golden Coverage
+
+Step 6.4-B2 的 8 条 Golden Case 覆盖：直接回忆、具体计划回忆、无关 Memory、跨 NPC 隔离、跨 Player 隔离、错误玩家主张的归属、意图不等于完成、空 Memory。Response Integration 使用 Mock Provider，验证 Context Injection 与冻结 Response Schema，不在开发阶段调用真实 Doubao。
+
+## NPC Persistent Memory Read Pipeline v0.1 Frozen Baseline
+
+- **Version**: Step 6.4-B2 — NPC Memory Retrieval + Context Injection v0.1
+- **Capability Name**: NPC Persistent Memory Read Pipeline v0.1
+- **Status**: FROZEN BASELINE
+- **Freeze Date**: 2026-08-27
+- **Memory Retriever Tests**: 11/11 PASS
+- **Memory-aware Response Integration**: 9/9 PASS
+- **Targeted Tests**: 20/20 PASS
+- **Full Offline Regression**: 103/103 PASS
+- **Python Syntax**: PASS
+- **JSON Validation**: 21/21 PASS
+- **Protected Hash Check**: PASS
+- **Real Doubao E2E**: Relevant Recall PASS; Irrelevant Memory Isolation PASS
+
+冻结后的 Persistent Memory 由两条独立管线组成：
+
+```text
+Persistent Memory Write Path
+Interaction Event
+→ Memory Builder
+→ Preview
+→ Explicit Confirmation
+→ Safe Commit
+
+Persistent Memory Read Path
+Memory Store
+→ Deterministic Retriever
+→ Relevant Memories
+→ Memory Recall Context
+→ NPC Response Runtime v0.2
+→ Read-only Response Preview
+```
+
+Write Path 与 Read Path 不共享隐式写入权限。Response Runtime 只能读取相关 Memory；它不能自动 Commit 新 Memory。Memory Builder 与 Commit Runtime 也不会负责检索或生成 NPC Response。
+
+### Frozen Capabilities
+
+- Persistent NPC Memory Store
+- Deterministic Memory Retrieval
+- NPC / Player Identity Isolation
+- Topic、Entity、Location、Memory Type 与 Recency 相关性评分
+- 默认 Top-K 3 检索
+- 独立 Memory Recall Context Schema
+- Memory-aware NPC Response Runtime v0.2
+- `reported_by_player` Epistemic Status 保护
+- Player Intention 与 Executed Action 分离
+- Memory 与 World Truth 分离
+- Relevant Memory Recall
+- Irrelevant Memory Suppression
+- Memory Read / Write Separation
+- Read-only Retrieval 与响应预览
+- Frozen NPC Response Runtime v0.1 与 Response Schema 兼容
+
+### Frozen Grounding Boundaries
+
+- **Memory Store != NPC Context**：Store 是完整的主观持久记录；Response 只接收 Retriever 选择出的最小 Recall Context。
+- **Memory != World Truth**：被记住的内容不会自动修改 Objective World State 或 NPC Knowledge。
+- **Player Claim != Verified Fact**：`reported_by_player` 只能证明玩家曾这样表达。
+- **Player Intention != Executed Action**：计划、愿望或承诺不证明行动已经发生或未来必然发生。
+
+真实 Doubao E2E 已验证：Astrid 能以“你之前告诉我”的归属方式回忆 Eirik 的 Stormcliff 计划，不把计划说成已执行行动；当玩家询问 Bjorn 的职业时，Stormcliff Memory 不会进入 Recall Context，Astrid 继续仅根据稳定 Knowledge 回答 Bjorn 是 Skeld 的铁匠。两次运行都保持 Read-only。
+
+### Explicitly Not Implemented
+
+本冻结版本不包含：Relationship Runtime、Trust / Familiarity、Automatic Memory Commit、Multi-turn Conversation Working Memory、Memory Summarization、Memory Consolidation、Memory Decay / Forgetting、Memory Importance Scoring、Embedding Retrieval、Vector Database、RAG Framework、Knowledge Promotion、Autonomous NPC Actions、NPC Schedule 或 Quest Integration。
+
+冻结基线后，只有可复现的真实 Failure 才允许修改相关实现。解冻必须遵循：
+
+```text
+Failure Reproduction
+→ New Regression Case
+→ Targeted Fix
+→ Targeted Regression
+→ Full Regression
+```
+
+任何修复都不得为单个 Case 破坏现有 Golden Cases、冻结的 NPC v0.1 Contracts、Step 5 Baseline、FastAPI Contract、Action Pipeline 或 World Rules。
