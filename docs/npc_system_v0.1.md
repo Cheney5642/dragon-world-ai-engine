@@ -1033,3 +1033,116 @@ Failure Reproduction
 ```
 
 Step 6.5 不属于本次 Freeze 范围，本轮不启动其设计或开发。
+
+## Step 6.5-A — Unified NPC Interaction Runtime v0.1
+
+Step 6.5-A 新增只读 Orchestrator，将已经冻结的 NPC Domain Modules 串成一次完整调用：
+
+```text
+Player Utterance
+→ Frozen Interaction Preconditions
+→ Frozen NPC Context v0.1
+→ Frozen Memory Retrieval v0.1
+→ Frozen Relationship Context v0.1
+→ Frozen Relationship-aware Response Runtime v0.3
+→ Frozen Interaction Event Builder v0.1
+→ Unified NPC Interaction Result
+```
+
+### Orchestration vs Domain Logic
+
+Orchestrator 只负责调用顺序、数据传递、统一验证和错误边界，不重新实现任何领域规则：
+
+- Knowledge 仍由 NPC Profile 与 Frozen NPC Context 决定。
+- Memory 仍由 Frozen Retriever 决定是否进入 Recall Context。
+- Relationship 仍由 Frozen Relationship Loader 决定 Default / Persistent Context。
+- Response 的事实、记忆和关系边界仍由 Frozen Runtime v0.3 负责。
+- Topic、Player Claims、Memory Candidate 与 Relationship Signal 仍由 Frozen Interaction Event Builder 派生。
+
+`memory_candidate` 与 `relationship_signal` 在 Unified Result 中只是 Interaction Event 同名字段的只读投影。Runtime Validator 强制两者与 Event 一致，因此不会形成第二套事实源。
+
+### Preconditions and LLM Call Boundary
+
+Runtime 复用 v0.3 已有的 Same-location Guard。Player 与 NPC 不在同一地点时返回 `interaction_available=false`，并令 NPC Context、Memory Context、Relationship Context、NPC Response 与 Interaction Event 为 `null`。该检查发生在 Provider 创建和调用之前，因此 LLM Call Count 为 0。
+
+合法 Interaction 只调用一次 Relationship-aware Response。Interaction Event Builder 是确定性的，不使用 LLM，也不会重复请求 NPC Response。
+
+### Unified Result Contract
+
+`npc_interaction_runtime_result.schema.json` 使用 `$ref` 组合现有冻结 Contract，而不是复制一个新的超级 Context：
+
+- `npc_context.schema.json`
+- `npc_memory_recall_context.schema.json`
+- `npc_relationship_context.schema.json`
+- `npc_response.schema.json`
+- `npc_interaction_event.schema.json`
+
+顶层提供 `npc_id`、`player_id`、`interaction_available`、`unavailable_reason`、各只读 Context、`npc_response`、`interaction_event`、`memory_candidate` 与 `relationship_signal`。Contract 不包含 Memory Commit、Relationship Commit 或 World Mutation 指令。
+
+### Read-only Boundary
+
+一次 Unified NPC Interaction 最多产生两个输出：NPC Response Preview 与未持久化的 Interaction Event。即使 `memory_candidate=true` 或出现 `potential_positive/potential_negative`，Runtime 也不会 Build/Commit Memory，不会 Evaluate/Commit Relationship，更不会修改 World State。
+
+`run_npc_interaction.py` 是开发期统一 CLI，按区块显示 NPC Context Summary、Memory Recall Context、Relationship Context、NPC Response、Interaction Event 与 Runtime Result。CLI 不显示 System Prompt、API Key 或隐藏推理，并对 World、Memory、Relationship 与 Profile 文件执行运行前后 Hash Check。
+
+本阶段没有修改 FastAPI Contract，没有 Event Store，也没有自动持久化。后续写入编排属于 Step 6.5-B 或更晚阶段，不在 Step 6.5-A 范围内。
+
+## Step 6.5-A — Unified NPC Interaction Runtime v0.1 Frozen Baseline
+
+- **Version**: Step 6.5-A — Unified NPC Interaction Runtime v0.1
+- **Status**: FROZEN BASELINE
+- **Freeze Date**: 2026-08-28
+- **Unified Runtime Targeted Tests**: 13/13 PASS
+- **Golden Cases**: 8/8 PASS
+- **Full Offline Regression**: 164/164 PASS
+- **Python Syntax**: PASS
+- **JSON Validation**: 37/37 PASS
+- **JSON Schema Validation**: 16/16 PASS
+- **Protected Hash Check**: PASS
+- **Secret Scan**: PASS
+
+冻结的统一链路为：
+
+```text
+Player Utterance
+→ Interaction Precondition
+→ NPC Context
+→ Memory Retrieval
+→ Relationship Context
+→ Relationship-aware Response Runtime v0.3
+→ Interaction Event
+→ Unified Runtime Result
+```
+
+### Human Acceptance
+
+**Case 1 — Knowledge Question**：Astrid × Eirik 对“Bjorn 是做什么的？”完成合法 Interaction。Runtime 正确组装空 Memory Recall 与 Persistent `2 / 1 / warm` Relationship，Astrid 仅根据 Knowledge 回答 Bjorn 是 Skeld 的铁匠，生成 `topic=bjorn_occupation`、`memory_candidate=false`、`relationship_signal=none` 的 Interaction Event，Read-only Hash Check 通过。
+
+**Case 2 — Memory Recall Through Unified Runtime**：对“你还记得我说过要去 Stormcliff 吗？”成功召回 `Eirik intends to go to Stormcliff alone tomorrow.`。Response 保留“玩家之前打算前往”的认识论边界，没有升级为已经执行的行动；Event 保持 `topic=stormcliff_travel_plan`、`memory_candidate=false`、`relationship_signal=none`，不会因 Recall 重复创建 Memory Candidate，Read-only Hash Check 通过。
+
+**Case 3 — Precondition Failure**：Player 与 NPC 不在同一 Location 时，顶层 Same-location Guard 返回 `interaction_available=false`，NPC Response 与 Interaction Event 均为 `null`，Provider 不创建且 LLM Call Count 为 0，Persistent State Hash 保持不变。
+
+### Frozen Principles and Capabilities
+
+- **Orchestrator coordinates; Domain Modules decide.**
+- Orchestrator 不重新实现 Knowledge、Memory Retrieval、Relationship、Response 或 Interaction Event 规则。
+- 合法 Interaction 最多调用一次 NPC Response LLM；Interaction Event Builder 不调用 LLM。
+- Precondition Failure 在 Provider 创建前终止。
+- Existing Contracts 通过 `$ref` 组合，不复制为新的领域事实源。
+- NPC Response 与 Interaction Event 在一次 Runtime 调用中统一返回。
+- `memory_candidate` 与 `relationship_signal` 直接派生自 Interaction Event。
+- Player Claim、Player Intention、Memory 与 World Truth 的既有边界全部保留。
+- Runtime 全链路 Read-only，不自动 Commit Memory 或 Relationship。
+- Runtime 不写 Event Store，不修改 World State、NPC Profile 或 NPC Knowledge。
+
+冻结后只有可复现的真实 Failure 才允许修改 Unified Result Schema、Orchestrator、Golden Dataset 或 Evaluation。任何解冻必须遵循：
+
+```text
+Failure Reproduction
+→ New Regression Case
+→ Targeted Fix
+→ Targeted Regression
+→ Full Regression
+```
+
+Step 6.5-B 尚未开始，在本 Freeze 完成前后都不得从 Step 6.5-A 推断出自动 Memory / Relationship Commit 能力。

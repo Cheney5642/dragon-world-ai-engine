@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_interaction_runtime_result.schema.json",
+  "title": "Unified NPC Interaction Runtime Result v0.1",
+  "description": "一次只读 NPC Interaction 的统一结果；通过引用现有冻结 Contract 组合 Context、Response 与 Event，不包含任何 Commit 指令。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "npc_id",
+    "player_id",
+    "interaction_available",
+    "unavailable_reason",
+    "npc_context",
+    "memory_recall_context",
+    "relationship_context",
+    "npc_response",
+    "interaction_event",
+    "memory_candidate",
+    "relationship_signal"
+  ],
+  "properties": {
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "interaction_available": {
+      "type": "boolean"
+    },
+    "unavailable_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "npc_context": {
+      "anyOf": [
+        {
+          "$ref": "npc_context.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "memory_recall_context": {
+      "anyOf": [
+        {
+          "$ref": "npc_memory_recall_context.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "relationship_context": {
+      "anyOf": [
+        {
+          "$ref": "npc_relationship_context.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "npc_response": {
+      "anyOf": [
+        {
+          "$ref": "npc_response.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "interaction_event": {
+      "anyOf": [
+        {
+          "$ref": "npc_interaction_event.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "memory_candidate": {
+      "type": "boolean",
+      "description": "交互成功时必须直接等于 Interaction Event 的同名字段；不执行 Memory Write。"
+    },
+    "relationship_signal": {
+      "type": "string",
+      "enum": [
+        "none",
+        "potential_positive",
+        "potential_negative"
+      ],
+      "description": "交互成功时必须直接等于 Interaction Event 的同名字段；不是 Relationship Mutation。"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "interaction_available": {
+            "const": true
+          }
+        },
+        "required": [
+          "interaction_available"
+        ]
+      },
+      "then": {
+        "properties": {
+          "unavailable_reason": {
+            "type": "null"
+          },
+          "npc_context": {
+            "$ref": "npc_context.schema.json"
+          },
+          "memory_recall_context": {
+            "$ref": "npc_memory_recall_context.schema.json"
+          },
+          "relationship_context": {
+            "$ref": "npc_relationship_context.schema.json"
+          },
+          "npc_response": {
+            "$ref": "npc_response.schema.json"
+          },
+          "interaction_event": {
+            "$ref": "npc_interaction_event.schema.json"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "unavailable_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "npc_context": {
+            "type": "null"
+          },
+          "memory_recall_context": {
+            "type": "null"
+          },
+          "relationship_context": {
+            "type": "null"
+          },
+          "npc_response": {
+            "type": "null"
+          },
+          "interaction_event": {
+            "type": "null"
+          },
+          "memory_candidate": {
+            "const": false
+          },
+          "relationship_signal": {
+            "const": "none"
+          }
+        }
+      }
+    }
+  ]
+}
