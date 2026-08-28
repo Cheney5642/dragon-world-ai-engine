@@ -1145,4 +1145,112 @@ Failure Reproduction
 → Full Regression
 ```
 
-Step 6.5-B 尚未开始，在本 Freeze 完成前后都不得从 Step 6.5-A 推断出自动 Memory / Relationship Commit 能力。
+Step 6.5-A 冻结时 Step 6.5-B 尚未开始，因此不能从 Unified Read-only Runtime 推断出自动 Memory / Relationship Commit 能力；后续独立实现与冻结记录见下节。
+
+## Step 6.5-B — Unified NPC Mutation Bridge v0.1
+
+Step 6.5-B 将 Unified Runtime 产出的已验证 Interaction Event 接入两个已经冻结的 Persistent Domain：
+
+```text
+Validated Interaction Event
+→ Unified Mutation Bridge
+├─ memory_candidate
+│  → Frozen Memory Preview Builder
+└─ relationship_signal
+   → Frozen Persistent Relationship Preview / Evaluator
+→ Unified Mutation Plan
+→ Independent Human Confirmations
+├─ Frozen Memory Safe Commit
+└─ Frozen Relationship Safe Commit
+```
+
+### Interaction Event Is the Candidate Source
+
+Bridge 不重新读取或解析 Player Utterance，不重新调用 NPC Response，也不调用 LLM。`event_id`、`npc_id`、`player_id`、`memory_candidate` 与 `relationship_signal` 直接来自 Frozen Interaction Event。
+
+`prepare_npc_mutation_plan()` 与 `commit_npc_mutation_plan()` 严格分离。Prepare 只生成 Preview，不能修改任何 Store；Commit 只执行已在 Plan 中标记为 `commit_available` 且经过独立人工确认的 Domain。
+
+### Unified Mutation Plan
+
+`npc_interaction_mutation_plan.schema.json` 包含：
+
+- Event Identity：`event_id`、`npc_id`、`player_id`
+- Memory：`candidate`、Frozen Memory `preview`、`commit_available`
+- Relationship：`signal`、Frozen Relationship Change `preview`、`commit_available`
+- `has_any_mutation`
+
+Memory Preview 和 Relationship Preview 分别通过 `$ref` 复用冻结 Schema。Runtime Validator 强制 Candidate/Signal 与 Interaction Event 一致，并强制 `has_any_mutation` 等于两个 Domain Commit Availability 的逻辑或，因此 Plan 不形成第二套 Interaction Event 或事实源。
+
+### Memory Bridge
+
+`memory_candidate=false` 时不会调用 Memory Preview Builder，Preview 为 `null`，也不存在 Commit 操作。`memory_candidate=true` 时调用 Frozen `build_memory_preview()`；Player Intention 或 Player Claim 继续以 `reported_by_player` 保存，不能升级为 World Truth。
+
+Memory 确认后只调用 Frozen `commit_memory_preview()`。重复 Event 继续由现有 `(npc_id, source_event_id)` Idempotency 拒绝，Bridge 不创建新 Key。
+
+### Relationship Bridge
+
+`relationship_signal=none` 时不会运行 Relationship Preview，Preview 为 `null`。存在 Potential Signal 时，Bridge 通过 Frozen Persistent Relationship Preview 加载当前关系并调用 Frozen Evaluator。
+
+只有 `decision=change_proposed` 才设置 `commit_available=true`。Unsupported Hero Claim 即使同时具有 `memory_candidate=true` 和 `potential_positive`，也只能成为 `reported_by_player` Memory；Frozen Grounded Evidence Boundary 仍令 Relationship `no_change`，不会增加 Trust。
+
+Relationship 确认后只调用 Frozen `commit_relationship_event()`。重复 Event 继续由现有 `applied_event_ids` 拒绝，Relationship 不会重复增长。
+
+### Independent Human Confirmation
+
+Memory 和 Relationship 必须分别确认：
+
+```text
+Commit Memory? [y/N]
+Commit Relationship Change? [y/N]
+```
+
+没有 Commit-capable Preview 的 Domain 不显示确认。Bridge 不提供 `Commit everything?`，也不允许客户端直接提交 Memory Record、Trust、Familiarity 或 Attitude。
+
+### Cross-store Transaction Boundary
+
+Memory Store 与 Relationship Store 是独立 Persistent Domains。每个 Frozen Commit Path 都使用各自的 Schema Validation、Idempotency 和 Atomic Replace，但 JSON v0.1 **不提供跨两个文件的全局 Atomic Transaction 或 Rollback**。
+
+同一 Event 同时具有两种 Candidate 时，两项 Preview 可以共存，用户也可以只确认其中一项。若两项都确认，它们按独立 Store Commit 顺序执行；未来 PostgreSQL 阶段才能考虑跨 Domain Transaction。
+
+### CLI and Persistent Boundary
+
+`run_npc_mutation_bridge.py` 支持 `--case N`、`--event-file` 和 `--runtime-result-file`。Golden Fixture 通过引用现有 Frozen Event Dataset 解析，不复制 Interaction Event Contract。CLI 显示 Event Summary、两个 Domain Preview 与 Commit Availability，不显示 Prompt、API Key 或隐藏推理。
+
+合法 Memory Commit 只能修改 `npc_memories.json`；合法 Relationship Commit 只能修改 `npc_relationships.json`。Bridge 永远不能修改 `current_world.json`、`world_seed.json`、NPC Profile 或 NPC Knowledge。自动测试全部使用 Temporary Stores；正式 Persistent State 不参与测试写入。
+
+Step 6.5-B 当前只建立开发期 Mutation Bridge，不修改 FastAPI Contract，也不把任何 Commit 接到 Web UI。
+
+### Step 6.5-B Final Freeze
+
+- **Version**: Unified NPC Mutation Bridge v0.1
+- **Status**: FROZEN BASELINE
+- **Freeze Date**: 2026-08-28
+- **Mutation Bridge Targeted Tests**: 17/17 PASS
+- **Memory Tests**: 41/41 PASS
+- **Relationship Tests**: 48/48 PASS
+- **Unified Runtime Tests**: 13/13 PASS
+- **Full Offline Regression**: 181/181 PASS
+- **Python Syntax**: PASS
+- **JSON Validation**: 39/39 PASS
+- **JSON Schema Validation**: 17/17 PASS
+- **Protected Hash Check**: PASS
+- **Secret Scan**: PASS
+- **LLM Calls**: 0
+
+人工验收确认了 No Mutation、Player Intention Memory、Memory Idempotency、Grounded Positive Relationship Preview、Memory / Relationship Independent Confirmation，以及 Relationship Idempotency。Temporary Store 验收证明 Preview 与独立 Commit 可以在不污染正式 Relationship Store 的条件下完成。
+
+冻结能力包括：Interaction Event 到 Mutation Plan 的确定性路由、Memory Candidate 与 Relationship Signal 分流、两个 Domain 的 Preview、独立人工确认、独立安全 Commit、各自的 Idempotency、Player Claim Epistemic Boundary、Grounded Relationship Evidence Boundary、Persistent Boundary、Temporary Store Test Isolation、Read / Write Separation，以及不重新调用 LLM。
+
+JSON v0.1 的 Transaction Boundary 保持明确：Memory Store Commit 与 Relationship Store Commit 分别使用各自的 Atomic Write，但系统不声明跨 Store Global Transaction、Rollback 或 All-or-nothing 保证。该能力只能在未来数据库架构中另行设计。
+
+本 Baseline 冻结后，只有可复现的真实 Failure 才允许修改 Mutation Plan Schema、Bridge Runtime、Golden Dataset 或 Evaluation。任何解冻必须遵循：
+
+```text
+Failure Reproduction
+→ New Regression Case
+→ Targeted Fix
+→ Targeted Regression
+→ Full Regression
+```
+
+Step 6.6 尚未开始。

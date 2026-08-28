@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_interaction_mutation_plan.schema.json",
+  "title": "Unified NPC Interaction Mutation Plan v0.1",
+  "description": "从 Frozen Interaction Event 派生的只读 Memory / Relationship Mutation Preview；不包含自动 Commit 权限。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "npc_id",
+    "player_id",
+    "memory",
+    "relationship",
+    "has_any_mutation"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^npc_event_[0-9a-f]{32}$"
+    },
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate",
+        "preview",
+        "commit_available"
+      ],
+      "properties": {
+        "candidate": {
+          "type": "boolean"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "npc_memory.schema.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "commit_available": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "candidate": {
+                "const": false
+              }
+            },
+            "required": [
+              "candidate"
+            ]
+          },
+          "then": {
+            "properties": {
+              "preview": {
+                "type": "null"
+              },
+              "commit_available": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "preview": {
+                "$ref": "npc_memory.schema.json"
+              },
+              "commit_available": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signal",
+        "preview",
+        "commit_available"
+      ],
+      "properties": {
+        "signal": {
+          "type": "string",
+          "enum": [
+            "none",
+            "potential_positive",
+            "potential_negative"
+          ]
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "npc_relationship_change.schema.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "commit_available": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "signal": {
+                "const": "none"
+              }
+            },
+            "required": [
+              "signal"
+            ]
+          },
+          "then": {
+            "properties": {
+              "preview": {
+                "type": "null"
+              },
+              "commit_available": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "preview": {
+                "$ref": "npc_relationship_change.schema.json"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "has_any_mutation": {
+      "type": "boolean",
+      "description": "必须等于两个独立 Domain 的 commit_available 逻辑或。"
+    }
+  }
+}

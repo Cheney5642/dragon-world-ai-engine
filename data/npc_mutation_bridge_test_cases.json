@@ -1,0 +1,130 @@
+{
+  "version": "0.1",
+  "description": "Step 6.5-B Mutation Bridge Golden Cases. Each case references an existing Frozen Interaction Event fixture instead of duplicating Event content.",
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "ordinary_question_no_mutation",
+      "event_fixture": {
+        "dataset": "npc_memory",
+        "case": 1
+      },
+      "expected": {
+        "memory_candidate": false,
+        "relationship_signal": "none",
+        "memory_commit_available": false,
+        "relationship_commit_available": false,
+        "has_any_mutation": false
+      }
+    },
+    {
+      "id": "case_2",
+      "name": "player_intention_memory",
+      "event_fixture": {
+        "dataset": "npc_memory",
+        "case": 6
+      },
+      "expected": {
+        "memory_candidate": true,
+        "memory_type": "player_intention",
+        "epistemic_status": "reported_by_player",
+        "content_contains": "intends to go to Stormcliff alone tomorrow",
+        "relationship_signal": "none",
+        "memory_commit_available": true,
+        "relationship_commit_available": false,
+        "has_any_mutation": true
+      }
+    },
+    {
+      "id": "case_3",
+      "name": "duplicate_memory",
+      "event_fixture": {
+        "dataset": "npc_memory",
+        "case": 6
+      },
+      "expected": {
+        "duplicate_domain": "memory",
+        "duplicate_rejected": true
+      }
+    },
+    {
+      "id": "case_4",
+      "name": "grounded_positive_relationship",
+      "event_fixture": {
+        "dataset": "npc_relationship",
+        "case": 4
+      },
+      "expected": {
+        "memory_candidate": true,
+        "relationship_signal": "potential_positive",
+        "relationship_decision": "change_proposed",
+        "memory_commit_available": true,
+        "relationship_commit_available": true,
+        "has_any_mutation": true
+      }
+    },
+    {
+      "id": "case_5",
+      "name": "duplicate_relationship",
+      "event_fixture": {
+        "dataset": "npc_relationship",
+        "case": 4
+      },
+      "expected": {
+        "duplicate_domain": "relationship",
+        "duplicate_rejected": true
+      }
+    },
+    {
+      "id": "case_6",
+      "name": "unsupported_hero_claim",
+      "event_fixture": {
+        "dataset": "npc_relationship",
+        "case": 7
+      },
+      "expected": {
+        "memory_candidate": true,
+        "memory_type": "player_claim",
+        "epistemic_status": "reported_by_player",
+        "relationship_signal": "potential_positive",
+        "relationship_decision": "no_change",
+        "memory_commit_available": true,
+        "relationship_commit_available": false,
+        "has_any_mutation": true
+      }
+    },
+    {
+      "id": "case_7",
+      "name": "both_candidates_independent_confirmation",
+      "event_fixture": {
+        "dataset": "npc_relationship",
+        "case": 4
+      },
+      "expected": {
+        "memory_candidate": true,
+        "relationship_signal": "potential_positive",
+        "relationship_decision": "change_proposed",
+        "memory_commit_available": true,
+        "relationship_commit_available": true,
+        "has_any_mutation": true,
+        "independent_confirmation": true
+      }
+    },
+    {
+      "id": "case_8",
+      "name": "no_mutation_write_boundary",
+      "event_fixture": {
+        "dataset": "npc_memory",
+        "case": 1
+      },
+      "expected": {
+        "memory_candidate": false,
+        "relationship_signal": "none",
+        "memory_commit_available": false,
+        "relationship_commit_available": false,
+        "has_any_mutation": false,
+        "read_only": true
+      }
+    }
+  ]
+}
