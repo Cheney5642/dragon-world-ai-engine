@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_relationship_context.schema.json",
+  "title": "NPC Relationship Context v0.1",
+  "description": "一次 NPC Response 使用的最小只读关系视图；relationship_exists 用于区分 Persistent Record 与未写入的 Default Relationship。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "npc_id",
+    "player_id",
+    "familiarity",
+    "trust",
+    "attitude",
+    "relationship_exists"
+  ],
+  "properties": {
+    "npc_id": {
+      "type": "string",
+      "pattern": "^npc_[a-z0-9_]+$"
+    },
+    "player_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "familiarity": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "trust": {
+      "type": "integer",
+      "minimum": -2,
+      "maximum": 2
+    },
+    "attitude": {
+      "type": "string",
+      "enum": [
+        "hostile",
+        "wary",
+        "neutral",
+        "warm"
+      ]
+    },
+    "relationship_exists": {
+      "type": "boolean",
+      "description": "true 表示来自 Persistent Store；false 表示只读 Default Fallback，读取不会创建记录。"
+    }
+  }
+}

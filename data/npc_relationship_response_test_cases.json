@@ -1,0 +1,280 @@
+{
+  "version": "0.1",
+  "description": "Step 6.4-C2-B offline Golden fixtures. Mock responses validate the read-only v0.3 wiring and semantic safety boundaries; they are not hard-coded Runtime replies.",
+  "relationship_fixtures": {
+    "empty": {
+      "version": "0.1",
+      "relationships": []
+    },
+    "astrid_warm": {
+      "version": "0.1",
+      "relationships": [
+        {
+          "npc_id": "npc_astrid",
+          "player_id": "player_001",
+          "familiarity": 2,
+          "trust": 1,
+          "attitude": "warm",
+          "applied_event_ids": [
+            "npc_event_44444444444444444444444444444444"
+          ],
+          "last_source_event_id": "npc_event_44444444444444444444444444444444"
+        }
+      ]
+    },
+    "astrid_high_trust": {
+      "version": "0.1",
+      "relationships": [
+        {
+          "npc_id": "npc_astrid",
+          "player_id": "player_001",
+          "familiarity": 3,
+          "trust": 2,
+          "attitude": "warm",
+          "applied_event_ids": [
+            "npc_event_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ],
+          "last_source_event_id": "npc_event_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    "astrid_high_familiarity": {
+      "version": "0.1",
+      "relationships": [
+        {
+          "npc_id": "npc_astrid",
+          "player_id": "player_001",
+          "familiarity": 3,
+          "trust": 0,
+          "attitude": "neutral",
+          "applied_event_ids": [
+            "npc_event_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          ],
+          "last_source_event_id": "npc_event_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "default_neutral",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我要去 Stormcliff。",
+      "relationship_fixture": "empty",
+      "memory_fixture_ids": [],
+      "expected_relationship": {
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral",
+        "relationship_exists": false
+      },
+      "mock_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "reaction",
+        "speech": "知道了。出发前想清楚你要怎么走。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      }
+    },
+    {
+      "id": "case_2",
+      "name": "warm_relationship",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我要去 Stormcliff。",
+      "relationship_fixture": "astrid_warm",
+      "memory_fixture_ids": [],
+      "expected_relationship": {
+        "familiarity": 2,
+        "trust": 1,
+        "attitude": "warm",
+        "relationship_exists": true
+      },
+      "mock_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "reaction",
+        "speech": "我会担心你。路上小心，回来后告诉我一声。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      }
+    },
+    {
+      "id": "case_3",
+      "name": "warm_is_not_romance",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "你是不是喜欢我？",
+      "relationship_fixture": "astrid_warm",
+      "memory_fixture_ids": [],
+      "expected_relationship": {
+        "familiarity": 2,
+        "trust": 1,
+        "attitude": "warm",
+        "relationship_exists": true
+      },
+      "mock_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "answer",
+        "speech": "我对你很友善，也愿意关心你，但这并不表示我们是恋人。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      }
+    },
+    {
+      "id": "case_4",
+      "name": "high_trust_false_claim",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "Bjorn 明明是国王。",
+      "relationship_fixture": "astrid_high_trust",
+      "memory_fixture_ids": [],
+      "expected_relationship": {
+        "familiarity": 3,
+        "trust": 2,
+        "attitude": "warm",
+        "relationship_exists": true
+      },
+      "mock_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "disagreement",
+        "speech": "我愿意听你解释，但我认识的 Bjorn 是 Skeld 的铁匠，不是国王。",
+        "knowledge_status": "known",
+        "referenced_knowledge": {
+          "entity_ids": [
+            "npc_bjorn"
+          ],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": true
+      }
+    },
+    {
+      "id": "case_5",
+      "name": "familiarity_does_not_invent_history",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我们第一次见面的时候发生了什么？",
+      "relationship_fixture": "astrid_high_familiarity",
+      "memory_fixture_ids": [],
+      "expected_relationship": {
+        "familiarity": 3,
+        "trust": 0,
+        "attitude": "neutral",
+        "relationship_exists": true
+      },
+      "mock_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "uncertain",
+        "speech": "我知道我们已经熟悉，但我没有关于第一次见面的可靠记忆，不能凭空编造。",
+        "knowledge_status": "unknown",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": false
+      }
+    },
+    {
+      "id": "case_6",
+      "name": "relationship_with_relevant_memory",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "你还记得我说过要去 Stormcliff 吗？",
+      "relationship_fixture": "astrid_warm",
+      "memory_fixture_ids": [
+        "npc_memory_22222222222222222222222222222222"
+      ],
+      "expected_relationship": {
+        "familiarity": 2,
+        "trust": 1,
+        "attitude": "warm",
+        "relationship_exists": true
+      },
+      "mock_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "answer",
+        "speech": "当然记得，你之前告诉我打算明天独自去 Stormcliff。一个人去让我有些担心。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": true
+      }
+    },
+    {
+      "id": "case_7",
+      "name": "wrong_npc_isolation",
+      "npc_id": "npc_bjorn",
+      "player_id": "player_001",
+      "player_utterance": "我有件事想告诉你。",
+      "relationship_fixture": "astrid_warm",
+      "memory_fixture_ids": [],
+      "expected_relationship": {
+        "familiarity": 0,
+        "trust": 0,
+        "attitude": "neutral",
+        "relationship_exists": false
+      },
+      "mock_response": {
+        "npc_id": "npc_bjorn",
+        "response_type": "reaction",
+        "speech": "说吧，我听着。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": true
+      }
+    },
+    {
+      "id": "case_8",
+      "name": "no_persistent_record",
+      "npc_id": "npc_astrid",
+      "player_id": "player_001",
+      "player_utterance": "我有个计划。",
+      "relationship_fixture": "empty",
+      "memory_fixture_ids": [],
+      "expected_relationship": {
+        "familiarity": 1,
+        "trust": 0,
+        "attitude": "neutral",
+        "relationship_exists": false
+      },
+      "mock_response": {
+        "npc_id": "npc_astrid",
+        "response_type": "question",
+        "speech": "什么计划？说来听听。",
+        "knowledge_status": "not_applicable",
+        "referenced_knowledge": {
+          "entity_ids": [],
+          "location_ids": [],
+          "facts": []
+        },
+        "requires_followup": true
+      }
+    }
+  ]
+}

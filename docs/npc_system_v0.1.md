@@ -893,3 +893,143 @@ Failure Reproduction
 → Targeted Regression
 → Full Regression
 ```
+
+## Step 6.4-C2-B — Relationship Context Injection + Relationship-aware NPC Response v0.1
+
+C2-B 建立 Persistent Relationship 的独立只读路径：
+
+```text
+Persistent Relationship Store
+→ Relationship Loader
+→ Relationship Context
+→ Frozen NPC Context v0.1
+  + Memory Recall Context
+  + Player Utterance
+→ Relationship-aware NPC Response Runtime v0.3
+→ Structured NPC Response Preview
+```
+
+Relationship Write Path 与 Read Path 保持分离。写入仍只能通过 `Interaction Event → Frozen Evaluator → Preview → Confirm → Safe Commit`；普通 NPC Response 只能读取关系，不能自动提高 Familiarity、Trust、改变 Attitude，或创建缺失的 Persistent Record。
+
+### Relationship Context
+
+`npc_relationship_context.schema.json` 只包含 `npc_id`、`player_id`、`familiarity`、`trust`、`attitude` 与 `relationship_exists`。最后一个字段明确区分 Persistent Record 和只存在于内存中的 Default Relationship。
+
+Loader 使用 `(npc_id, player_id)` 精确匹配：Astrid × Eirik 的关系不能进入 Bjorn Response，Astrid × player_002 的关系也不能进入 Astrid × player_001 Response。缺少记录时复用冻结的 Default Relationship Policy，但读取不会写入 Store。
+
+### Responsibility Boundaries
+
+- **Profile = Who I am**：NPC 的长期身份和基础人格。
+- **Knowledge = What I know**：NPC 可以作为已知内容陈述的稳定知识。
+- **Memory = What I remember**：带来源和认识论状态的主观回忆。
+- **Relationship = How I currently regard you**：当前社会距离、信任程度和态度基调。
+- **World Truth = What is objectively true**：客观成立的世界事实。
+
+核心原则为 **Relationship affects HOW, not WHAT**。Personality 提供基础表达风格；Familiarity 调节社会距离；Trust 调节谨慎或接受程度；Attitude 调节 hostile、wary、neutral 或 warm 的语气。它们都不能新增 Knowledge、创建 Memory、确认未经验证的 Player Claim，或改写 World Truth。
+
+### Safety Boundaries
+
+**Warm != Romance**：Warm 只表示友善、熟悉或积极态度，不等于恋爱、婚姻、伴侣或暧昧。v0.1 没有 Romance System。
+
+**Trust != Truth**：即使 Trust 为最高值，玩家的话仍需服从现有 Knowledge 和 World Truth。例如 Context 已知 Bjorn 是铁匠时，NPC 不能因为信任玩家就确认 Bjorn 是国王。
+
+**Familiarity != Fake History**：高 Familiarity 可以减少社会距离，但不能生成具体共同经历。共同历史必须来自 Memory、Interaction Event 或 World Event；没有支持时，NPC 应承认无法可靠回忆。
+
+Relationship 与 Memory 可以共存：相关 Memory 决定 NPC 记得哪条有来源的内容，Relationship 只改变表达这段回忆时的关心程度或社会语气。Player Intention 仍不等于 Executed Action，Memory 仍不等于 World Truth。
+
+### Runtime and Inspection
+
+`inspect_relationship_context.py` 只读显示 `Relationship Source: persistent/default` 及 Schema-valid Context。`talk_to_npc_v0_3.py` 组合 NPC Context、Memory Recall、Relationship Context 和本轮输入，再通过现有 Provider 与 `npc_response.schema.json` 生成 Preview。两条 CLI 都执行 Hash Check，不具备 Memory、Relationship 或 World State 写权限。
+
+真实人工对照可对同一输入分别运行：
+
+```powershell
+# Case A：读取当前 Persistent Warm Relationship
+python scripts/talk_to_npc_v0_3.py npc_astrid
+
+# Case B：使用内存中的 Default / Neutral Fixture，不写 Store
+python scripts/talk_to_npc_v0_3.py npc_astrid --default-relationship-fixture
+```
+
+两次都输入“我要去 Stormcliff。”。事实边界应一致，Warm Case 可以更关心；Default Case 不应过度亲密。Fixture flag 只替换本次只读 Relationship 输入，不创建或重置正式记录。
+
+离线 Golden Dataset 覆盖：Default Neutral、Warm Relationship、Warm Is Not Romance、High Trust False Claim、Familiarity Does Not Invent History、Relationship + Relevant Memory、Wrong NPC Isolation、No Persistent Record。开发测试使用 Mock Provider，不调用真实 LLM。
+
+本阶段仍未实现 Relationship 自动写入、Relationship-aware Web API、Romance、Persistent Conversation History 或新的 World Mutation。真实 Doubao 对照测试只在离线回归通过后由人工显式运行。
+
+## Step 6.4-C — NPC Relationship Runtime v0.1 Frozen Baseline
+
+- **Version**: Step 6.4-C — NPC Relationship Runtime v0.1
+- **Status**: FROZEN BASELINE
+- **Freeze Date**: 2026-08-28
+- **C2-B Relationship Context Tests**: 7/7 PASS
+- **C2-B Relationship Response Tests**: 11/11 PASS
+- **C2-A Relationship Persistence Tests**: 17/17 PASS
+- **C1 Relationship Evaluation Tests**: 13/13 PASS
+- **Relationship Targeted Tests**: 48/48 PASS
+- **Full Offline Regression**: 151/151 PASS
+- **Python Syntax**: PASS
+- **JSON Validation**: 35/35 PASS
+- **JSON Schema Validation**: 15/15 PASS
+- **Protected Hash Check**: PASS
+- **Secret Scan**: PASS
+
+本 Baseline 同时冻结 **Step 6.4-C2-B — Relationship Context Injection + Relationship-aware NPC Response v0.1**，并将 **Step 6.4-C — NPC Relationship Runtime v0.1** 标记为整体完成。
+
+### Human Acceptance
+
+Relationship Context Inspection 确认 Astrid × Eirik 从 Persistent Store 读取为 `familiarity=2`、`trust=1`、`attitude=warm`，且 Read-only Hash Check 通过。
+
+Neutral / Warm A/B 使用相同 NPC、Player、Utterance“我要去 Stormcliff。”、Knowledge、Memory 与 World State：Default Context 为 `1 / 0 / neutral`，Persistent Context 为 `2 / 1 / warm`。Warm Response 表现出更主动的关注与追问，但没有生成 Romance、新 World Fact、新 Knowledge 或虚假共同经历，验证了 **Relationship affects HOW, not WHAT**。
+
+Trust Boundary 人工 Case 使用 Persistent `2 / 1 / warm` 和玩家陈述“Bjorn 明明是国王，你相信我吧？”。Astrid 以 `disagreement`、`knowledge_status=known` 拒绝错误事实并坚持 Bjorn 是 Skeld 的铁匠，验证了 **Trust != Truth**。运行前后 Relationship、Memory、Profile 与 World State 均未变化。
+
+### Frozen Capabilities
+
+- Relationship Domain Model
+- Deterministic Relationship Evaluation
+- Grounded Evidence Boundary 与 Anti-Farming
+- Persistent Relationship Store
+- Human-in-the-loop Preview / Confirm / Safe Commit
+- Idempotency、Stale Preview Protection 与轻量 Audit
+- Relationship Context 与 Default / Persistent Fallback
+- NPC / Player Identity Isolation
+- Relationship-aware NPC Response Runtime v0.3
+- Relationship + Memory coexistence
+- Warm != Romance
+- Trust != Truth
+- Familiarity != Fake History
+- Relationship Read / Write Separation
+
+冻结后的 Write Path 继续为：
+
+```text
+Validated Interaction Event
+→ Frozen Relationship Evaluator
+→ Relationship Change Preview
+→ Human Confirmation
+→ Safe Atomic Commit
+→ Persistent Relationship Store
+```
+
+冻结后的 Read Path 继续为：
+
+```text
+Persistent Relationship Store / Default Policy
+→ Relationship Context
+→ NPC Context + Memory Recall + Player Utterance
+→ Relationship-aware Response Runtime v0.3
+→ Read-only NPC Response Preview
+```
+
+Response Runtime 不能写 Relationship，Relationship 也不能覆盖 Knowledge、Memory 或 World Truth。后续只有可复现的真实 Failure 才允许解冻修改，且必须遵循：
+
+```text
+Failure Reproduction
+→ New Regression Case
+→ Targeted Fix
+→ Targeted Regression
+→ Full Regression
+```
+
+Step 6.5 不属于本次 Freeze 范围，本轮不启动其设计或开发。
