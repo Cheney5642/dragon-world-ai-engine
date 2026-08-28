@@ -738,3 +738,158 @@ Failure Reproduction
 → Targeted Regression
 → Full Regression
 ```
+
+## Step 6.4-C2-A — Persistent NPC Relationship Store v0.1
+
+C2-A 将冻结的 C1 Relationship Change Preview 接入独立、受控的 Persistent Write Path：
+
+```text
+Validated Interaction Event
++ Current Persistent Relationship
+→ Frozen Relationship Evaluator
+→ Relationship Change Preview
+→ Schema Validation
+→ Explicit Human Confirmation
+→ Server-side Re-evaluation
+→ Atomic Commit
+→ data/saves/npc_relationships.json
+```
+
+Relationship Store 是独立 Runtime Domain，不属于 `current_world.json`、`anchor_npcs.json` 或 `npc_memories.json`。正式 Store 初始结构为：
+
+```json
+{
+  "version": "0.1",
+  "relationships": []
+}
+```
+
+每条 Persistent Record 包含冻结 Relationship State 的 `npc_id`、`player_id`、`familiarity`、`trust`、`attitude`，以及轻量 Audit 字段 `applied_event_ids` 和 `last_source_event_id`。
+
+### Unique NPC × Player Relationship
+
+Store Validator 强制 `(npc_id, player_id)` 唯一，一个组合只能拥有一个当前关系状态。这与未来关系型数据库的 `UNIQUE(npc_id, player_id)` 对齐。JSON Schema 负责字段类型和 Bounds，本地确定性校验负责复合唯一键及 Audit 一致性。
+
+### Default Relationship Is Not an Automatic Write
+
+当 Store 中不存在指定 NPC / Player 组合时，Runtime 根据冻结的 C1 Initial Relationship Policy 在内存中构建 Default Relationship。当前 Vertical Demo 明确认定 `npc_astrid + player_001` 是普通熟人，因此默认 `familiarity=1`、`trust=0`、`attitude=neutral`；其他未配置组合默认 `0 / 0 / neutral`。
+
+Preview 不会因为读取了 Default Relationship 就创建 Persistent Record。只有冻结 Evaluator 产生 `change_proposed`，用户明确确认且 Commit 再验证通过后，才允许建立第一条 Store Record。
+
+### Commit Authority
+
+Commit API 只接受 Frozen Interaction Event 和系统生成的 Expected Preview。它不接受客户端直接提交 Familiarity、Trust、Attitude 或任意 Proposed State。
+
+确认后 Runtime 会重新加载 Store、检查幂等性、重新解析当前关系并再次调用冻结 Evaluator。如果重新生成的 Preview 与用户看到的 Preview 不一致，Commit 会以 Stale Preview 拒绝，而不是提交未确认的变化。
+
+`decision=no_change` 时不会显示有效 Commit 路径，不询问确认，也不写 Store。Greeting、普通问题、Marriage Claim 和 Unsupported Hero Claim 都保持该边界。
+
+### Idempotency and Lightweight Audit
+
+每条 Persistent Record 保存已成功应用的 `applied_event_ids`。`source_event_id + npc_id + player_id` 已存在时，重复 Preview 或 Commit 返回：
+
+```text
+Relationship change for this interaction event already applied.
+```
+
+同一 Grounded Help Event 因此不能把 Trust 从 0→1 后再次刷到 2。`last_source_event_id` 提供当前状态最近一次变化来源；C2-A 不建立完整 Event Sourcing 或 Relationship History。未来数据库可把 Applied Event Audit 拆分为独立表。
+
+### Atomic Write and Reset
+
+Relationship Commit 复用项目安全写入模式：
+
+```text
+In-memory Updated Store
+→ Validate
+→ Same-directory Temporary File
+→ Flush + fsync
+→ Reload + Validate Temporary Store
+→ os.replace
+→ Reload + Validate Committed Store
+```
+
+失败时临时文件被清理，原 Store 保持不变。`reset_npc_relationships.py --confirm` 使用同一 Atomic Writer 把 Store 重置为合法空结构；没有 `--confirm` 时明确拒绝。Reset 只允许修改 Relationship Store。
+
+### Runtime Event Bridge and Inspection
+
+`commit_npc_relationship.py` 支持两种互斥来源：
+
+- `--case N`：`Source mode: golden_fixture`
+- `--event-file <path>`：`Source mode: runtime_event`
+
+两者都消费同一个冻结的 `npc_interaction_event.schema.json`，不创建第二套 Event Contract。`inspect_npc_relationship.py` 只读显示 Persistent Record；缺少记录时会显示未持久化 Default Relationship 与 `Persistent record exists: no`。
+
+`npc_relationship_persistence_test_cases.json` 定义 8 条 C2-A Persistence Golden Case，并通过 `interaction_case` 引用冻结的 C1 Event Fixture：Greeting、普通问题、Marriage Claim、Grounded Help Cancel/Confirm、Duplicate Commit、Grounded Threat、Unsupported Hero Claim 与 Bounds。它只描述持久化行为，不复制或改写 Interaction Event Contract。
+
+### Persistent Boundary
+
+C2-A 合法 Commit 只允许修改 `data/saves/npc_relationships.json`。自动测试使用 Temporary Relationship Store，并通过 Hash Check 保护 World Seed、Current World、NPC Memory Store、Anchor Profiles、NPC Knowledge 与全部冻结 Runtime。
+
+本阶段尚未实现 Relationship Context Injection、Relationship-aware NPC Response、Relationship Commit API/Web UI、PostgreSQL、SQLAlchemy 或 Alembic。这些能力不能从 Store 的存在推断为已完成。
+
+## Step 6.4-C2-A Persistent NPC Relationship Store v0.1 Frozen Baseline
+
+- **Version**: Step 6.4-C2-A — Persistent NPC Relationship Store v0.1
+- **Status**: FROZEN BASELINE
+- **Freeze Date**: 2026-08-28
+- **Relationship Persistence Targeted Tests**: 17/17 PASS
+- **Relationship Evaluation Tests**: 13/13 PASS
+- **Persistence Golden Cases**: 8/8 PASS
+- **Full Offline Regression**: 133/133 PASS
+- **Python Syntax**: PASS
+- **JSON / Schema Validation**: PASS
+- **Protected Hash Check**: PASS
+
+冻结的 C2-A Baseline 包含：
+
+- 独立 Persistent NPC Relationship Store
+- Default Relationship Read-only Fallback
+- NPC × Player 复合唯一关系
+- Frozen Evaluator 驱动的 Relationship Change Preview
+- Human-in-the-loop Commit
+- Server-side Re-evaluation 与 Stale Preview Protection
+- Safe Atomic Write
+- `source_event_id + npc_id + player_id` Idempotency
+- `applied_event_ids` 与 `last_source_event_id` 轻量 Audit
+- Golden Fixture 与 Runtime Event 输入
+- Read-only Inspection
+- Explicit Safe Reset
+- Persistent Boundary Protection
+
+最终人工验收确认：Greeting 的 `no_change` 不创建 Persistent Record；Grounded Meaningful Help 经 Preview 和用户输入 `y` 后，将 Astrid × Eirik 从 `1 / 0 / neutral` 安全提交为 `2 / 1 / warm`；重复提交同一 `npc_event_44444444444444444444444444444444` 被幂等性检查拒绝，关系不会继续增长到 `3 / 2 / warm`。
+
+冻结写入架构为：
+
+```text
+Validated Interaction Event
++ Current Persistent Relationship
+→ Frozen Relationship Evaluator
+→ Relationship Change Preview
+→ Schema Validation
+→ Human Confirmation
+→ Idempotency Check
+→ Atomic Commit
+→ npc_relationships.json
+```
+
+Interaction Event 不能直接修改 Relationship，客户端也不能直接提交 Familiarity、Trust 或 Attitude。任何 Mutation 必须由冻结 Evaluator 根据受支持的 Grounded Evidence 生成，并在 Commit 时重新验证。
+
+Relationship 继续是独立 Runtime Persistent Domain：
+
+- **NPC Profile != Relationship**
+- **Memory != Relationship**
+- **Relationship != World State**
+
+合法 Commit 只允许修改 `data/saves/npc_relationships.json`。本冻结版本尚未实现 Relationship Context Injection 或 Relationship-aware NPC Response。
+
+下一阶段为 **Step 6.4-C2-B — Relationship Context Injection + Relationship-aware Response**。在该阶段被明确启动前，不得扩展 C2-A 的响应行为或引入隐式 Relationship Mutation。
+
+冻结后只有可复现的真实 Failure 才允许修改 Store Schema、Persistence Runtime、Golden Dataset 或 Commit Rules。解冻必须遵循：
+
+```text
+Failure Reproduction
+→ New Regression Case
+→ Targeted Fix
+→ Targeted Regression
+→ Full Regression
+```

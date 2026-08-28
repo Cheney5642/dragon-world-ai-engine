@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_relationship_store.schema.json",
+  "title": "Persistent NPC Relationship Store v0.1",
+  "description": "独立的 NPC × Player Relationship Runtime Store；不属于 World State、NPC Profile 或 Memory Store。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "relationships"
+  ],
+  "properties": {
+    "version": {
+      "const": "0.1"
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "npc_id",
+          "player_id",
+          "familiarity",
+          "trust",
+          "attitude",
+          "applied_event_ids",
+          "last_source_event_id"
+        ],
+        "properties": {
+          "npc_id": {
+            "type": "string",
+            "pattern": "^npc_[a-z0-9_]+$"
+          },
+          "player_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "familiarity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "trust": {
+            "type": "integer",
+            "minimum": -2,
+            "maximum": 2
+          },
+          "attitude": {
+            "type": "string",
+            "enum": [
+              "hostile",
+              "wary",
+              "neutral",
+              "warm"
+            ]
+          },
+          "applied_event_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^npc_event_[0-9a-f]{32}$"
+            }
+          },
+          "last_source_event_id": {
+            "type": "string",
+            "pattern": "^npc_event_[0-9a-f]{32}$"
+          }
+        }
+      }
+    }
+  }
+}

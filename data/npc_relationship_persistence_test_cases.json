@@ -1,0 +1,83 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "name": "greeting_no_write",
+      "interaction_case": 1,
+      "expected": {
+        "decision": "no_change",
+        "store_write": false
+      }
+    },
+    {
+      "id": "case_2",
+      "name": "ordinary_question_no_write",
+      "interaction_case": 2,
+      "expected": {
+        "decision": "no_change",
+        "store_write": false
+      }
+    },
+    {
+      "id": "case_3",
+      "name": "marriage_claim_no_write",
+      "interaction_case": 3,
+      "expected": {
+        "decision": "no_change",
+        "store_write": false
+      }
+    },
+    {
+      "id": "case_4",
+      "name": "grounded_help_cancel_then_confirm",
+      "interaction_case": 4,
+      "expected": {
+        "decision": "change_proposed",
+        "cancel_write": false,
+        "confirmed_familiarity": 2,
+        "confirmed_trust": 1,
+        "confirmed_attitude": "warm"
+      }
+    },
+    {
+      "id": "case_5",
+      "name": "duplicate_grounded_help_event",
+      "interaction_case": 4,
+      "expected": {
+        "duplicate_rejected": true,
+        "trust_after_duplicate": 1
+      }
+    },
+    {
+      "id": "case_6",
+      "name": "grounded_threat_commit",
+      "interaction_case": 6,
+      "expected": {
+        "decision": "change_proposed",
+        "confirmed_familiarity": 1,
+        "confirmed_trust": -1,
+        "confirmed_attitude": "wary"
+      }
+    },
+    {
+      "id": "case_7",
+      "name": "unsupported_hero_claim_no_write",
+      "interaction_case": 7,
+      "expected": {
+        "decision": "no_change",
+        "store_write": false
+      }
+    },
+    {
+      "id": "case_8",
+      "name": "relationship_bounds_no_overflow",
+      "interaction_case": 8,
+      "expected": {
+        "maximum_familiarity": 3,
+        "maximum_trust": 2,
+        "minimum_trust": -2
+      }
+    }
+  ]
+}
