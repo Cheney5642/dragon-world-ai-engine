@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "npc_interaction_api_response.schema.json",
+  "title": "NPC Interaction API Response v0.1",
+  "description": "FastAPI adapter response composed only from the Frozen Unified NPC Runtime and Mutation Bridge outputs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "interaction_available",
+    "unavailable_reason",
+    "npc_response",
+    "interaction_event",
+    "mutation_plan"
+  ],
+  "properties": {
+    "interaction_available": {
+      "type": "boolean"
+    },
+    "unavailable_reason": {
+      "type": ["string", "null"]
+    },
+    "npc_response": {
+      "anyOf": [
+        {"$ref": "npc_response.schema.json"},
+        {"type": "null"}
+      ]
+    },
+    "interaction_event": {
+      "anyOf": [
+        {"$ref": "npc_interaction_event.schema.json"},
+        {"type": "null"}
+      ]
+    },
+    "mutation_plan": {
+      "anyOf": [
+        {"$ref": "npc_interaction_mutation_plan.schema.json"},
+        {"type": "null"}
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "interaction_available": {"const": true}
+        },
+        "required": ["interaction_available"]
+      },
+      "then": {
+        "properties": {
+          "unavailable_reason": {"type": "null"},
+          "npc_response": {"$ref": "npc_response.schema.json"},
+          "interaction_event": {"$ref": "npc_interaction_event.schema.json"},
+          "mutation_plan": {"$ref": "npc_interaction_mutation_plan.schema.json"}
+        }
+      },
+      "else": {
+        "properties": {
+          "unavailable_reason": {"type": "string", "minLength": 1},
+          "npc_response": {"type": "null"},
+          "interaction_event": {"type": "null"},
+          "mutation_plan": {"type": "null"}
+        }
+      }
+    }
+  ]
+}

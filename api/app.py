@@ -9,8 +9,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 
+from api.npc_api import register_npc_routes
 from core import action_pipeline
 from llm import LLMProviderError
+from npc.interaction_runtime import StructuredOutputProvider
+from npc.memory import MEMORY_STORE_PATH
+from npc.relationship_store import RELATIONSHIP_STORE_PATH
 from scripts import execute_action
 from scripts import interpret_action
 from scripts import validate_action
@@ -147,6 +151,10 @@ def _pipeline_http_error(exc: Exception) -> HTTPException:
 
 def create_app(
     save_path: Path = interpret_action.SAVE_PATH,
+    *,
+    memory_store_path: Path = MEMORY_STORE_PATH,
+    relationship_store_path: Path = RELATIONSHIP_STORE_PATH,
+    npc_provider_client: StructuredOutputProvider | None = None,
 ) -> FastAPI:
     application = FastAPI(
         title="Dragon World API",
@@ -214,6 +222,14 @@ def create_app(
             raise
         except Exception as exc:
             raise _pipeline_http_error(exc) from exc
+
+    register_npc_routes(
+        application,
+        load_world=lambda: _load_world(save_path),
+        memory_store_path=memory_store_path,
+        relationship_store_path=relationship_store_path,
+        provider_client=npc_provider_client,
+    )
 
     return application
 
