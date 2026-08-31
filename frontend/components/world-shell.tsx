@@ -6,8 +6,11 @@ import type { FormEvent } from "react";
 import {
   API_BASE_URL,
   commitAction,
+  commitNpcMemory,
+  commitNpcRelationship,
   DragonWorldApiError,
   getWorldState,
+  interactWithNpc,
   previewAction,
 } from "@/lib/api";
 import {
@@ -24,6 +27,7 @@ import {
 } from "@/lib/ui-copy";
 import type { CommitUiStatus } from "@/lib/ui-copy";
 import type { ActionPreviewResponse } from "@/types/action";
+import type { NpcInteractionResponse } from "@/types/npc";
 import type { InventoryEntry, WorldState } from "@/types/world";
 
 import styles from "./world-shell.module.css";
@@ -60,6 +64,33 @@ function needsNoPersistentMutation(preview: ActionPreviewResponse): boolean {
 
 function actionErrorMessage(error: unknown, fallback: string): string {
   return error instanceof DragonWorldApiError ? error.message : fallback;
+}
+
+async function persistNpcMutationsSilently(
+  interaction: NpcInteractionResponse,
+): Promise<void> {
+  const event = interaction.interaction_event;
+  const plan = interaction.mutation_plan;
+  if (!event || !plan) return;
+
+  const commits: Promise<unknown>[] = [];
+  if (
+    plan.memory.candidate &&
+    plan.memory.commit_available &&
+    plan.memory.preview !== null
+  ) {
+    commits.push(commitNpcMemory({ interaction_event: event }));
+  }
+  if (
+    plan.relationship.commit_available &&
+    plan.relationship.preview !== null
+  ) {
+    commits.push(commitNpcRelationship({ interaction_event: event }));
+  }
+
+  // Persistence is deliberately independent from dialogue rendering. Rejected
+  // commits are handled here without turning a successful NPC reply into an error.
+  if (commits.length > 0) await Promise.allSettled(commits);
 }
 
 function PanelTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
@@ -306,6 +337,11 @@ export function WorldShell() {
   const [consoleMessage, setConsoleMessage] = useState<string>(
     UI_COPY.action.initialStatus,
   );
+  const [npcUtterance, setNpcUtterance] = useState("");
+  const [npcInteraction, setNpcInteraction] =
+    useState<NpcInteractionResponse | null>(null);
+  const [npcSending, setNpcSending] = useState(false);
+  const [npcError, setNpcError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -379,6 +415,30 @@ export function WorldShell() {
     setActionError(null);
     setCommitStatus("not_requested");
     setConsoleMessage(UI_COPY.action.cancelled);
+  }
+
+  async function handleNpcSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const utterance = npcUtterance.trim();
+    if (!utterance || npcSending) return;
+
+    setNpcSending(true);
+    setNpcError(null);
+    setNpcInteraction(null);
+
+    try {
+      const interaction = await interactWithNpc({
+        npc_id: "npc_astrid",
+        player_id: "player_001",
+        utterance,
+      });
+      setNpcInteraction(interaction);
+      await persistNpcMutationsSilently(interaction);
+    } catch (error: unknown) {
+      setNpcError(actionErrorMessage(error, UI_COPY.errors.npcFallback));
+    } finally {
+      setNpcSending(false);
+    }
   }
 
   async function handleConfirmAction() {
@@ -695,6 +755,75 @@ export function WorldShell() {
           </details>
         </aside>
       </div>
+
+      <section className={styles.dialoguePanel}>
+        <div className={styles.consoleHeading}>
+          <span>{UI_COPY.npcDialogue.section}</span>
+          <p>{UI_COPY.npcDialogue.panelHint}</p>
+        </div>
+
+        <div className={styles.dialogueIdentity}>
+          <div aria-hidden="true">A</div>
+          <p>
+            <span>{UI_COPY.npcDialogue.npcName}</span>
+            <strong>Astrid</strong>
+          </p>
+        </div>
+
+        <div className={styles.dialogueResponse} aria-live="polite">
+          <span>{UI_COPY.npcDialogue.response}</span>
+          {npcInteraction?.interaction_available === false ? (
+            <p className={styles.dialogueUnavailable}>
+              {npcInteraction.unavailable_reason ??
+                UI_COPY.npcDialogue.unavailableFallback}
+            </p>
+          ) : npcInteraction?.npc_response ? (
+            <p>{npcInteraction.npc_response.speech}</p>
+          ) : npcSending ? (
+            <p>{UI_COPY.npcDialogue.loading}</p>
+          ) : (
+            <p className={styles.dialoguePlaceholder}>
+              {UI_COPY.npcDialogue.emptyResponse}
+            </p>
+          )}
+        </div>
+
+        <form onSubmit={handleNpcSubmit}>
+          <label htmlFor="npc-dialogue-input">
+            {UI_COPY.npcDialogue.inputLabel}
+          </label>
+          <div className={styles.actionRow}>
+            <textarea
+              id="npc-dialogue-input"
+              value={npcUtterance}
+              onChange={(event) => {
+                setNpcUtterance(event.target.value);
+                setNpcError(null);
+              }}
+              placeholder={UI_COPY.npcDialogue.placeholder}
+              rows={2}
+              disabled={npcSending}
+            />
+            <button
+              type="submit"
+              disabled={!npcUtterance.trim() || npcSending}
+            >
+              <span>
+                {npcSending
+                  ? UI_COPY.npcDialogue.sending
+                  : UI_COPY.npcDialogue.send}
+              </span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </form>
+
+        {npcError ? (
+          <p className={styles.previewError} role="alert">
+            {npcError}
+          </p>
+        ) : null}
+      </section>
 
       <section className={styles.actionConsole}>
         <div className={styles.consoleHeading}>

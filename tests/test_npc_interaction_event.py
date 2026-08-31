@@ -16,6 +16,7 @@ from npc.interaction_event import (
     build_interaction_event,
     load_interaction_event_schema,
 )
+from npc.memory import build_memory_preview
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +81,26 @@ class NpcInteractionEventTests(unittest.TestCase):
         self.assertEqual(context, context_before)
         self.assertEqual(response, response_before)
         return case, context, event
+
+    def build_intention(self, utterance: str) -> dict[str, Any]:
+        world_state = copy.deepcopy(self.world_state)
+        world_state["player"]["name"] = "Eirik"
+        context = build_npc_context("npc_astrid", world_state)
+        response = {
+            "npc_id": "npc_astrid",
+            "response_type": "reaction",
+            "speech": "听起来你已经有了明确的计划。",
+            "knowledge_status": "not_applicable",
+            "referenced_knowledge": {
+                "entity_ids": [],
+                "location_ids": [],
+                "facts": [],
+            },
+            "requires_followup": False,
+        }
+        event = build_interaction_event(context, utterance, response)
+        Draft202012Validator(self.schema).validate(event)
+        return event
 
     def test_case_1_ordinary_question_is_not_a_claim(self) -> None:
         case, _, event = self.build_case(1)
@@ -155,6 +176,21 @@ class NpcInteractionEventTests(unittest.TestCase):
         self.assertEqual(event["player_claims"], [])
         self.assertFalse(event["memory_candidate"])
         self.assertEqual(event["relationship_signal"], "none")
+
+    def test_v02_old_ruins_plan_is_player_intention_memory(self) -> None:
+        event = self.build_intention(
+            "我明天准备去 Old Ruins 寻找失踪的商队。"
+        )
+        self.assertTrue(event["memory_candidate"])
+        memory = build_memory_preview(event)
+        self.assertEqual(memory["memory_type"], "player_intention")
+        self.assertEqual(memory["epistemic_status"], "reported_by_player")
+
+    def test_v02_whispering_woods_plan_is_memory_candidate(self) -> None:
+        event = self.build_intention(
+            "今晚我要去 Whispering Woods 找药草。"
+        )
+        self.assertTrue(event["memory_candidate"])
 
     def test_case_8_builder_is_read_only_for_files_and_inputs(self) -> None:
         before = {

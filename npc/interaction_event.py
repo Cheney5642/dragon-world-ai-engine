@@ -127,6 +127,72 @@ def _is_question_without_assertion(player_utterance: str) -> bool:
     return any(marker in text for marker in question_markers)
 
 
+def _has_planned_action(text: str) -> bool:
+    chinese_action_markers = (
+        "去",
+        "前往",
+        "出发",
+        "离开",
+        "寻找",
+        "探索",
+        "出海",
+        "采集",
+        "帮助",
+        "拜访",
+        "调查",
+        "学习",
+        "训练",
+        "建造",
+        "加入",
+        "成为",
+        "骑",
+    )
+    return any(marker in text for marker in chinese_action_markers) or (
+        re.search(
+            r"\b(?:go|travel|leave|depart|find|search|explore|sail|gather|help|"
+            r"visit|investigate|learn|train|build|join|become|ride)\b",
+            text,
+        )
+        is not None
+    )
+
+
+def _has_general_player_intention(text: str) -> bool:
+    first_person = "我" in text or re.search(r"\b(?:i|i'm|i am)\b", text) is not None
+    intention_markers = (
+        "想",
+        "希望",
+        "打算",
+        "准备",
+        "计划",
+        "要",
+        "将",
+        "i want",
+        "i hope",
+        "i plan",
+        "i intend",
+        "i will",
+        "i am going to",
+        "i'm going to",
+    )
+    future_time_markers = (
+        "明天",
+        "今晚",
+        "明早",
+        "以后",
+        "将来",
+        "tomorrow",
+        "tonight",
+        "this evening",
+        "next morning",
+        "in the future",
+    )
+    has_future_or_intention = any(
+        marker in text for marker in (*intention_markers, *future_time_markers)
+    )
+    return first_person and has_future_or_intention and _has_planned_action(text)
+
+
 def _extract_player_claims(
     npc_context: dict[str, Any],
     player_utterance: str,
@@ -164,7 +230,7 @@ def _extract_player_claims(
         return []
 
     intention_markers = ("我想", "我希望", "我打算", "我准备", "我计划", "我要", "i want", "i hope", "i plan", "i intend")
-    if any(marker in text for marker in intention_markers):
+    if any(marker in text for marker in intention_markers) or _has_general_player_intention(text):
         return [f'{player} states an intention: "{player_utterance.strip()}"']
 
     factual_claim_markers = ("我是", "我有", "我拥有", "其实是", "there is", "i am", "i have", "i own")
@@ -174,17 +240,21 @@ def _extract_player_claims(
     return []
 
 
-def _is_memory_candidate(player_utterance: str) -> bool:
+def _is_memory_candidate(
+    player_utterance: str,
+    player_claims: list[str],
+) -> bool:
     text = _normalized_text(player_utterance)
 
-    significant_plan = (
-        ("skeld" in text and any(marker in text for marker in ("离开", "leave")))
-        or (
-            "stormcliff" in text
-            and any(marker in text for marker in ("明天", "tomorrow"))
-            and any(marker in text for marker in ("准备", "打算", "计划", "去", "go", "travel", "intend", "plan"))
-        )
+    if _is_question_without_assertion(player_utterance):
+        return False
+
+    attributed_intention = any(
+        " intends " in claim.casefold()
+        or "states an intention" in claim.casefold()
+        for claim in player_claims
     )
+    explicit_player_intention = attributed_intention and _has_planned_action(text)
     major_commitment_or_conflict = any(
         marker in text
         for marker in (
@@ -199,7 +269,11 @@ def _is_memory_candidate(player_utterance: str) -> bool:
             "i will attack",
         )
     )
-    return significant_plan or major_commitment_or_conflict
+    return (
+        explicit_player_intention
+        or _has_general_player_intention(text)
+        or major_commitment_or_conflict
+    )
 
 
 def _derive_relationship_signal(player_utterance: str) -> str:
@@ -259,6 +333,7 @@ def build_interaction_event(
             "NPC dialogue event requires player and NPC to be co-located."
         )
 
+    player_claims = _extract_player_claims(npc_context, player_utterance)
     event = {
         "event_id": f"npc_event_{uuid.uuid4().hex}",
         "event_type": "npc_dialogue",
@@ -275,8 +350,8 @@ def build_interaction_event(
             "speech": npc_response["speech"],
         },
         "topic": _derive_topic(player_utterance),
-        "player_claims": _extract_player_claims(npc_context, player_utterance),
-        "memory_candidate": _is_memory_candidate(player_utterance),
+        "player_claims": player_claims,
+        "memory_candidate": _is_memory_candidate(player_utterance, player_claims),
         "relationship_signal": _derive_relationship_signal(player_utterance),
     }
     validate_interaction_event(event, event_schema)

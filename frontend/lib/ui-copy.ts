@@ -111,6 +111,7 @@ export const UI_COPY = {
     previewFallback: "无法生成行动预览。",
     commitFallback: "无法执行本次行动。",
     refreshAfterCommit: "行动已执行，但无法刷新最新世界状态。",
+    npcFallback: "无法获得 NPC 回复。",
     http: (status: number) => `Dragon World API 返回 HTTP ${status}。`,
   },
   header: {
@@ -175,6 +176,19 @@ export const UI_COPY = {
     commitSucceeded: "行动已执行 · 世界状态已刷新",
     refreshFailed: "世界状态刷新失败",
     commitFailed: "行动执行失败",
+  },
+  npcDialogue: {
+    section: "NPC 对话",
+    panelHint: "与 Astrid 自然交谈",
+    npcName: "对话角色",
+    response: "NPC 回复",
+    emptyResponse: "向 Astrid 说点什么，开始本次对话。",
+    loading: "Astrid 正在回应……",
+    unavailableFallback: "Astrid 当前无法与你互动。",
+    inputLabel: "你想对 Astrid 说什么？",
+    placeholder: "输入你想对 Astrid 说的话……",
+    send: "发送",
+    sending: "发送中……",
   },
   preview: {
     title: "行动流水线预览",
