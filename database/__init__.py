@@ -1,5 +1,6 @@
 """PostgreSQL connection infrastructure for Dragon World."""
 
+from .base import Base
 from .connection import (
     DatabaseConfigurationError,
     create_database_engine,
@@ -9,6 +10,7 @@ from .connection import (
 )
 
 __all__ = [
+    "Base",
     "DatabaseConfigurationError",
     "create_database_engine",
     "create_session_factory",

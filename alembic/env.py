@@ -1,6 +1,8 @@
 from logging.config import fileConfig
 
 from alembic import context
+from database import models as _models  # noqa: F401 - registers all ORM tables
+from database.base import Base
 from database.connection import create_database_engine, get_database_url
 
 # this is the Alembic Config object, which provides
@@ -12,9 +14,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# ORM models do not exist in Step 6.7-C4. A later model phase will bind this
-# value to the Dragon World Declarative Base metadata for autogeneration.
-target_metadata = None
+# Importing database.models above registers all 11 Frozen runtime tables in
+# this single metadata registry. C5 defines metadata only; it runs no migration.
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
