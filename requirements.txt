@@ -3,3 +3,5 @@ python-dotenv
 jsonschema
 fastapi
 uvicorn
+SQLAlchemy>=2,<3
+psycopg[binary]>=3,<4
