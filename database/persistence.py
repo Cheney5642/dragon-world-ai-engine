@@ -1,8 +1,9 @@
-"""Thin PostgreSQL persistence adapter for the Step 6.7-C7-A scope.
+"""Thin PostgreSQL persistence adapter for the Dragon World runtime.
 
-The JSON runtime remains the source of truth in this phase. This adapter is a
-preparation layer only: it does not dual-write, migrate JSON, or change any
-runtime call path. Callers must supply already validated registry/domain data.
+PostgreSQL is the runtime source of truth after the C7-C cutover. This module
+keeps explicit domain-shaped operations and does not dual-write or fall back to
+the legacy JSON migration artifacts. Callers must supply already validated
+registry/domain data.
 
 The Frozen ``npc_memories`` schema has no ``created_at`` column. The adapter
 therefore does not invent one or hide it in metadata; interaction record time
@@ -297,6 +298,20 @@ class PostgresPersistenceAdapter:
             session.flush()
             session.refresh(record)
             return _interaction_event_record(record)
+
+    def get_interaction_event(
+        self,
+        event_id: str,
+    ) -> dict[str, Any] | None:
+        """Read one persisted Interaction Event without producing a mutation."""
+
+        with self._read_session() as session:
+            record = session.get(InteractionEvent, event_id)
+            return (
+                _interaction_event_record(record)
+                if record is not None
+                else None
+            )
 
 
 def _required_mapping(

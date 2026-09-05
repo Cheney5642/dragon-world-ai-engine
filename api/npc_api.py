@@ -13,7 +13,13 @@ from jsonschema.exceptions import SchemaError, ValidationError
 from pydantic import BaseModel, ConfigDict, Field
 from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
+from sqlalchemy.exc import SQLAlchemyError
 
+from database.connection import DatabaseConfigurationError
+from database.persistence import (
+    PersistenceMappingError,
+    PostgresPersistenceAdapter,
+)
 from llm import LLMProviderClient, LLMProviderError
 from npc.interaction_event import (
     NpcInteractionEventError,
@@ -35,7 +41,6 @@ from npc.memory import (
 from npc.mutation_bridge import (
     MutationUnavailableError,
     NpcMutationBridgeError,
-    commit_npc_mutation_plan,
     load_npc_mutation_plan_schema,
     prepare_npc_mutation_plan,
 )
@@ -228,6 +233,15 @@ def _raise_npc_http_error(exc: Exception) -> None:
             "persistent_store_failure",
             "An NPC persistent store is invalid or unavailable.",
         ) from exc
+    if isinstance(
+        exc,
+        (DatabaseConfigurationError, PersistenceMappingError, SQLAlchemyError),
+    ):
+        raise _system_error(
+            500,
+            "persistent_store_failure",
+            "PostgreSQL Runtime State is invalid or unavailable.",
+        ) from exc
     if isinstance(exc, (NpcResponseError, NpcInteractionRuntimeError)):
         raise _system_error(
             502,
@@ -256,31 +270,128 @@ def _clean_utterance(request: NpcInteractRequest) -> str:
     return request.utterance
 
 
+def _memory_contract_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Map a DB row to the Frozen Memory Contract used by retrieval.
+
+    C7-B deliberately stored missing legacy Event references as NULL. Its
+    migration metadata retains the old opaque ID, which is safe to expose to
+    the read-only Frozen contract without pretending that an Event row exists.
+    """
+
+    source_event_id = record.get("source_event_id")
+    if source_event_id is None:
+        metadata = record.get("metadata")
+        if isinstance(metadata, dict):
+            source_event_id = metadata.get("legacy_source_event_id")
+    if not isinstance(source_event_id, str) or not source_event_id:
+        raise NpcInteractionRuntimeError(
+            "A PostgreSQL NPC Memory has no resolvable source Event identity."
+        )
+    return {
+        "memory_id": record["memory_id"],
+        "npc_id": record["npc_id"],
+        "player_id": record["player_id"],
+        "source_event_id": source_event_id,
+        "memory_type": record["memory_type"],
+        "content": record["content"],
+        "epistemic_status": record["epistemic_status"],
+        "world_context": copy.deepcopy(record["world_context"]),
+        "created_from_topic": record["created_from_topic"],
+    }
+
+
+def _postgres_memory_store(
+    persistence: PostgresPersistenceAdapter,
+    npc_id: str,
+    player_id: str,
+) -> dict[str, Any]:
+    return {
+        "version": "0.1",
+        "memories": [
+            _memory_contract_record(record)
+            for record in persistence.list_npc_memories(npc_id, player_id)
+        ],
+    }
+
+
+def _postgres_relationship_store(
+    persistence: PostgresPersistenceAdapter,
+    npc_id: str,
+    player_id: str,
+) -> dict[str, Any]:
+    record = persistence.get_npc_relationship(player_id, npc_id)
+    return {
+        "version": "0.1",
+        "relationships": [record] if record is not None else [],
+    }
+
+
+def _require_persisted_event(
+    persistence: PostgresPersistenceAdapter,
+    event: dict[str, Any],
+) -> None:
+    persisted = persistence.get_interaction_event(event["event_id"])
+    if persisted is None:
+        raise NpcInteractionEventError(
+            "Interaction Event is not present in PostgreSQL Runtime State."
+        )
+    if any(persisted.get(key) != value for key, value in event.items()):
+        raise NpcInteractionEventError(
+            "Interaction Event does not match its PostgreSQL record."
+        )
+
+
 def register_npc_routes(
     application: FastAPI,
     *,
     load_world: Callable[[], dict[str, Any]],
-    memory_store_path: Path = MEMORY_STORE_PATH,
-    relationship_store_path: Path = RELATIONSHIP_STORE_PATH,
+    memory_store_path: Path | None = None,
+    relationship_store_path: Path | None = None,
     provider_client: StructuredOutputProvider | LLMProviderClient | None = None,
+    persistence_adapter: PostgresPersistenceAdapter | None = None,
 ) -> None:
     """Register thin HTTP adapters without copying any Frozen domain rules."""
+
+    fixture_mode = persistence_adapter is None
+    if fixture_mode:
+        memory_store_path = memory_store_path or MEMORY_STORE_PATH
+        relationship_store_path = relationship_store_path or RELATIONSHIP_STORE_PATH
 
     @application.post(
         "/api/npc/interact",
         response_model=NpcInteractionApiResponse,
     )
     def interact_with_npc(request: NpcInteractRequest) -> dict[str, Any]:
-        world_state = load_world()
-        _validate_entity_ids(world_state, request.npc_id, request.player_id)
         try:
+            world_state = load_world()
+            _validate_entity_ids(world_state, request.npc_id, request.player_id)
+            memory_store_document = (
+                None
+                if fixture_mode
+                else _postgres_memory_store(
+                    persistence_adapter,
+                    request.npc_id,
+                    request.player_id,
+                )
+            )
+            relationship_store_document = (
+                None
+                if fixture_mode
+                else _postgres_relationship_store(
+                    persistence_adapter,
+                    request.npc_id,
+                    request.player_id,
+                )
+            )
             runtime_result = run_npc_interaction(
                 request.npc_id,
                 request.player_id,
                 _clean_utterance(request),
                 world_state,
                 memory_store_path=memory_store_path,
+                memory_store_document=memory_store_document,
                 relationship_store_path=relationship_store_path,
+                relationship_store_document=relationship_store_document,
                 provider_client=provider_client,
             )
             if runtime_result["interaction_available"] is not True:
@@ -296,7 +407,10 @@ def register_npc_routes(
                 mutation_plan = prepare_npc_mutation_plan(
                     event,
                     relationship_store_path=relationship_store_path,
+                    relationship_store_document=relationship_store_document,
                 )
+                if not fixture_mode:
+                    persistence_adapter.insert_interaction_event(event)
                 response = {
                     "interaction_available": True,
                     "unavailable_reason": None,
@@ -322,29 +436,83 @@ def register_npc_routes(
                 event["npc_id"],
                 event["player_id"],
             )
+            relationship_store_document = None
+            if not fixture_mode:
+                _require_persisted_event(persistence_adapter, event)
+                relationship_store_document = _postgres_relationship_store(
+                    persistence_adapter,
+                    event["npc_id"],
+                    event["player_id"],
+                )
             plan = prepare_npc_mutation_plan(
                 event,
                 relationship_store_path=relationship_store_path,
+                relationship_store_document=relationship_store_document,
             )
             if not plan[domain]["commit_available"]:
                 raise MutationUnavailableError(
                     f"No {domain.title()} mutation is available to commit."
                 )
-            result = commit_npc_mutation_plan(
-                event,
-                plan,
-                commit_memory=domain == "memory",
-                commit_relationship=domain == "relationship",
-                memory_store_path=memory_store_path,
-                relationship_store_path=relationship_store_path,
-            )
-            domain_result = result[domain]
+            if fixture_mode:
+                from npc.mutation_bridge import commit_npc_mutation_plan
+
+                result = commit_npc_mutation_plan(
+                    event,
+                    plan,
+                    commit_memory=domain == "memory",
+                    commit_relationship=domain == "relationship",
+                    memory_store_path=memory_store_path,
+                    relationship_store_path=relationship_store_path,
+                )
+                domain_result = result[domain]
+                record = domain_result["record"]
+                committed = domain_result["committed"]
+            elif domain == "memory":
+                existing_memories = persistence_adapter.list_npc_memories(
+                    event["npc_id"],
+                    event["player_id"],
+                )
+                if any(
+                    memory.get("source_event_id") == event["event_id"]
+                    for memory in existing_memories
+                ):
+                    raise DuplicateMemoryError(
+                        "Memory for this interaction event already exists."
+                    )
+                record = copy.deepcopy(plan["memory"]["preview"])
+                persistence_adapter.insert_npc_memory(record)
+                committed = True
+            else:
+                current = persistence_adapter.get_npc_relationship(
+                    event["player_id"],
+                    event["npc_id"],
+                )
+                proposed = copy.deepcopy(
+                    plan["relationship"]["preview"]["proposed_relationship"]
+                )
+                applied_event_ids = (
+                    list(current["applied_event_ids"])
+                    if current is not None
+                    else []
+                )
+                if event["event_id"] in applied_event_ids:
+                    raise DuplicateRelationshipEventError(
+                        "Relationship change for this interaction event already applied."
+                    )
+                applied_event_ids.append(event["event_id"])
+                record = {
+                    **proposed,
+                    "applied_event_ids": applied_event_ids,
+                    "last_source_event_id": event["event_id"],
+                }
+                record = persistence_adapter.upsert_npc_relationship(record)
+                committed = True
             return {
-                "event_id": result["event_id"],
+                "event_id": event["event_id"],
                 "domain": domain,
-                "committed": domain_result["committed"],
-                "record": domain_result["record"],
-                "cross_store_transaction": result["cross_store_transaction"],
+                "committed": committed,
+                "record": record,
+                "cross_store_transaction": False,
             }
         except Exception as exc:
             _raise_npc_http_error(exc)
