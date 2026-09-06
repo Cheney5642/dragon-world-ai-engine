@@ -73,6 +73,11 @@ class PlayerState(Base):
             "jsonb_array_length(goals) <= 5",
             name="ck_player_states_goals_max_items",
         ),
+        CheckConstraint(
+            "identity_context IS NULL "
+            "OR jsonb_typeof(identity_context) = 'object'",
+            name="ck_player_states_identity_context_json_object",
+        ),
     )
 
     player_id: Mapped[str] = mapped_column(
@@ -83,6 +88,10 @@ class PlayerState(Base):
     current_location: Mapped[str] = mapped_column(Text, nullable=False)
     inventory: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     goals: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    identity_context: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
 
 
 class Npc(Base):

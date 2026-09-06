@@ -33,6 +33,9 @@ class PersistenceMappingError(ValueError):
     """Raised when input cannot map to the Frozen PostgreSQL schema."""
 
 
+_IDENTITY_CONTEXT_UNSET = object()
+
+
 class PostgresPersistenceAdapter:
     """Minimal explicit CRUD boundary over the existing SQLAlchemy Session."""
 
@@ -136,8 +139,11 @@ class PostgresPersistenceAdapter:
         current_location: str,
         inventory: Sequence[Any],
         goals: Sequence[str],
+        identity_context: Mapping[str, Any] | None | object = (
+            _IDENTITY_CONTEXT_UNSET
+        ),
     ) -> dict[str, Any]:
-        """Insert or update the single current state row for a known Player."""
+        """Upsert state without clearing an omitted Open Identity Context."""
 
         with self._write_session() as session:
             record = session.get(PlayerState, player_id)
@@ -147,12 +153,21 @@ class PostgresPersistenceAdapter:
                     current_location=current_location,
                     inventory=list(inventory),
                     goals=list(goals),
+                    identity_context=(
+                        None
+                        if identity_context is _IDENTITY_CONTEXT_UNSET
+                        else _identity_context_value(identity_context)
+                    ),
                 )
                 session.add(record)
             else:
                 record.current_location = current_location
                 record.inventory = list(inventory)
                 record.goals = list(goals)
+                if identity_context is not _IDENTITY_CONTEXT_UNSET:
+                    record.identity_context = _identity_context_value(
+                        identity_context
+                    )
             session.flush()
             return _player_state_record(record)
 
@@ -351,7 +366,22 @@ def _player_state_record(record: PlayerState) -> dict[str, Any]:
         "current_location": record.current_location,
         "inventory": list(record.inventory),
         "goals": list(record.goals),
+        "identity_context": (
+            dict(record.identity_context)
+            if record.identity_context is not None
+            else None
+        ),
     }
+
+
+def _identity_context_value(
+    value: Mapping[str, Any] | None | object,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise PersistenceMappingError("identity_context must be an object or null.")
+    return dict(value)
 
 
 def _npc_memory_record(record: NpcMemory) -> dict[str, Any]:
