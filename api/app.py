@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
@@ -41,6 +42,9 @@ from npc.interaction_runtime import StructuredOutputProvider
 from scripts import execute_action
 from scripts import interpret_action
 from scripts import validate_action
+
+
+logger = logging.getLogger(__name__)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -465,18 +469,33 @@ def create_app(
                     provider_client=identity_provider_client,
                 )
             except LLMProviderError as exc:
+                logger.exception(
+                    "identity_initialization_failed stage=b1_interpreter "
+                    "error_code=provider_failure exception_type=%s",
+                    exc.__class__.__name__,
+                )
                 raise _identity_system_error(
                     502,
                     "provider_failure",
                     "The configured LLM provider could not interpret identity.",
                 ) from exc
             except IdentityInterpretationError as exc:
+                logger.exception(
+                    "identity_initialization_failed stage=b1_interpreter "
+                    "error_code=invalid_interpreter_output exception_type=%s",
+                    exc.__class__.__name__,
+                )
                 raise _identity_system_error(
                     502,
                     "invalid_interpreter_output",
                     "The Identity Interpreter returned an invalid result.",
                 ) from exc
             except Exception as exc:
+                logger.exception(
+                    "identity_initialization_failed stage=b1_interpreter "
+                    "error_code=interpreter_failure exception_type=%s",
+                    exc.__class__.__name__,
+                )
                 raise _identity_system_error(
                     500,
                     "interpreter_failure",

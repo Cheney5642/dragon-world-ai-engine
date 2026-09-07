@@ -9,11 +9,15 @@ small amount of provider-specific request handling.
 from __future__ import annotations
 
 import copy
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any
 
 from openai import OpenAI, OpenAIError
+
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_PROVIDER = "doubao"
@@ -35,6 +39,49 @@ API_SCHEMA_OMITTED_KEYWORDS = {
 
 class LLMProviderError(Exception):
     """A user-facing provider configuration or request error."""
+
+
+def _provider_error_diagnostics(exc: OpenAIError) -> dict[str, Any]:
+    """Extract non-secret provider metadata without logging request headers."""
+
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    body = getattr(exc, "body", None)
+    error_body = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error_body, dict):
+        error_body = body if isinstance(body, dict) else {}
+
+    def header(name: str) -> str | None:
+        if headers is None or not hasattr(headers, "get"):
+            return None
+        value = headers.get(name)
+        return str(value) if value else None
+
+    status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        status_code = getattr(response, "status_code", None)
+
+    provider_code = error_body.get("code") or getattr(exc, "code", None)
+    provider_message = error_body.get("message") or getattr(exc, "message", None)
+    request_id = (
+        getattr(exc, "request_id", None)
+        or error_body.get("request_id")
+        or header("x-request-id")
+    )
+    trace_id = (
+        error_body.get("trace_id")
+        or error_body.get("traceId")
+        or header("x-tt-logid")
+        or header("x-trace-id")
+    )
+    return {
+        "status_code": status_code,
+        "provider_code": provider_code,
+        "provider_message": provider_message,
+        "request_id": request_id,
+        "trace_id": trace_id,
+        "exception_type": exc.__class__.__name__,
+    }
 
 
 def _build_api_schema(local_schema: dict[str, Any]) -> dict[str, Any]:
@@ -95,25 +142,71 @@ class LLMProviderClient:
                 },
             )
         except OpenAIError as exc:
+            diagnostics = _provider_error_diagnostics(exc)
+            logger.error(
+                "llm_provider_request_failed provider=%s model=%s "
+                "http_status=%s provider_error_code=%s provider_message=%r "
+                "request_id=%s trace_id=%s exception_type=%s",
+                self.provider,
+                self.model,
+                diagnostics["status_code"],
+                diagnostics["provider_code"],
+                diagnostics["provider_message"],
+                diagnostics["request_id"],
+                diagnostics["trace_id"],
+                diagnostics["exception_type"],
+            )
             raise LLMProviderError(
                 f"Provider {self.provider} 请求失败（{exc.__class__.__name__}）：{exc}"
             ) from exc
 
+        logger.info(
+            "llm_provider_request_completed provider=%s model=%s "
+            "response_status=%s response_id=%s",
+            self.provider,
+            self.model,
+            getattr(response, "status", None),
+            getattr(response, "id", None),
+        )
+
         if getattr(response, "status", None) == "incomplete":
             details = getattr(response, "incomplete_details", None)
             reason = getattr(details, "reason", None) or "未知原因"
+            logger.error(
+                "llm_provider_response_invalid provider=%s model=%s "
+                "failure=incomplete reason=%r response_id=%s",
+                self.provider,
+                self.model,
+                reason,
+                getattr(response, "id", None),
+            )
             raise LLMProviderError(
                 f"Provider {self.provider} 返回了不完整响应：{reason}。"
             )
 
         refusal = _extract_refusal(response)
         if refusal:
+            logger.error(
+                "llm_provider_response_invalid provider=%s model=%s "
+                "failure=refusal message=%r response_id=%s",
+                self.provider,
+                self.model,
+                refusal,
+                getattr(response, "id", None),
+            )
             raise LLMProviderError(
                 f"Provider {self.provider} 未生成 Player Creation 结果：{refusal}"
             )
 
         output_text = getattr(response, "output_text", None)
         if not output_text or not output_text.strip():
+            logger.error(
+                "llm_provider_response_invalid provider=%s model=%s "
+                "failure=empty_structured_output response_id=%s",
+                self.provider,
+                self.model,
+                getattr(response, "id", None),
+            )
             raise LLMProviderError(
                 f"Provider {self.provider} 没有返回有效的结构化输出。"
             )
