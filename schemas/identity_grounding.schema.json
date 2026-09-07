@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "identity_grounding.schema.json",
+  "title": "Identity Grounding Result v0.1",
+  "description": "Deterministic, read-only classification of candidate identity into accepted facts and unverified claims.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "accepted_facts",
+    "unverified_claims",
+    "accepted_traits",
+    "accepted_capability_hints",
+    "grounding_notes"
+  ],
+  "properties": {
+    "accepted_facts": {
+      "type": "array",
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "unverified_claims": {
+      "type": "array",
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "accepted_traits": {
+      "type": "array",
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "accepted_capability_hints": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "grounding_notes": {
+      "type": "array",
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

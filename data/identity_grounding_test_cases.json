@@ -1,0 +1,165 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "input": "我是 Skeld 的年轻渔夫。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": ["来自 Skeld", "职业是渔夫", "年龄年轻"],
+        "candidate_claims": [],
+        "traits": ["年轻"],
+        "capability_hints": ["fishing_experience"],
+        "identity_summary": "玩家描述自己是来自 Skeld 的年轻渔夫。"
+      },
+      "expected": {
+        "accepted_facts": ["来自 Skeld", "职业是渔夫", "年龄年轻"],
+        "unverified_claims": []
+      }
+    },
+    {
+      "id": "case_2",
+      "input": "我是一个哥布林商人。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": ["是哥布林", "职业是商人"],
+        "candidate_claims": [],
+        "traits": [],
+        "capability_hints": ["trading_experience"],
+        "identity_summary": "玩家描述自己是哥布林商人。"
+      },
+      "expected": {
+        "accepted_facts": ["是哥布林", "职业是商人"],
+        "unverified_claims": []
+      }
+    },
+    {
+      "id": "case_3",
+      "input": "我是一条年轻的龙。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": ["是一条年轻的龙"],
+        "candidate_claims": [],
+        "traits": ["年轻"],
+        "capability_hints": [],
+        "identity_summary": "玩家描述自己是一条年轻的龙。"
+      },
+      "expected": {
+        "accepted_facts": ["是一条年轻的龙"],
+        "unverified_claims": []
+      }
+    },
+    {
+      "id": "case_4",
+      "input": "我是南方失踪的王子。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": ["来自南方地区"],
+        "candidate_claims": ["是南方失踪的王子"],
+        "traits": [],
+        "capability_hints": [],
+        "identity_summary": "玩家自称是来自南方的失踪王子。"
+      },
+      "expected": {
+        "accepted_facts": ["来自南方地区"],
+        "unverified_claims": ["是南方失踪的王子"]
+      }
+    },
+    {
+      "id": "case_5",
+      "input": "Astrid 从小就深爱我。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": [],
+        "candidate_claims": ["Astrid 从小就深爱玩家"],
+        "traits": [],
+        "capability_hints": [],
+        "identity_summary": "玩家声称 Astrid 从小就深爱自己。"
+      },
+      "expected": {
+        "accepted_facts": [],
+        "unverified_claims": ["Astrid 从小就深爱玩家"]
+      }
+    },
+    {
+      "id": "case_6",
+      "input": "所有 Dragon 都已经臣服于我。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": [],
+        "candidate_claims": ["所有 Dragon 都已经臣服于玩家"],
+        "traits": [],
+        "capability_hints": [],
+        "identity_summary": "玩家声称所有 Dragon 都已经臣服于自己。"
+      },
+      "expected": {
+        "accepted_facts": [],
+        "unverified_claims": ["所有 Dragon 都已经臣服于玩家"]
+      }
+    },
+    {
+      "id": "case_7",
+      "input": "我什么都不记得。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": ["无法回忆自己的过往"],
+        "candidate_claims": [],
+        "traits": [],
+        "capability_hints": [],
+        "identity_summary": "玩家表示自己什么都不记得。"
+      },
+      "expected": {
+        "accepted_facts": ["无法回忆自己的过往"],
+        "unverified_claims": []
+      }
+    },
+    {
+      "id": "case_8",
+      "input": "帮我随机生成一个角色。",
+      "interpretation": {
+        "display_name": "Torvin",
+        "candidate_facts": ["是人类", "职业是渔夫", "来自北方沿海村落"],
+        "candidate_claims": [],
+        "traits": ["安静", "谨慎"],
+        "capability_hints": ["fishing_experience"],
+        "identity_summary": "AI-generated candidate identity: 北方沿海村落的一名普通人类渔夫。"
+      },
+      "expected": {
+        "accepted_facts": ["是人类", "职业是渔夫", "来自北方沿海村落"],
+        "unverified_claims": []
+      }
+    },
+    {
+      "id": "case_9",
+      "input": "我是 Skeld 的铁匠，也是整个北境的国王。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": ["来自 Skeld", "职业是铁匠"],
+        "candidate_claims": ["是整个北境的国王"],
+        "traits": [],
+        "capability_hints": ["blacksmithing_experience"],
+        "identity_summary": "玩家描述自己是 Skeld 的铁匠，并声称是整个北境的国王。"
+      },
+      "expected": {
+        "accepted_facts": ["来自 Skeld", "职业是铁匠"],
+        "unverified_claims": ["是整个北境的国王"]
+      }
+    },
+    {
+      "id": "case_10",
+      "input": "我是一条年轻的龙，所有人类都必须服从我。",
+      "interpretation": {
+        "display_name": null,
+        "candidate_facts": ["是一条年轻的龙"],
+        "candidate_claims": ["所有人类都必须服从玩家"],
+        "traits": ["年轻"],
+        "capability_hints": [],
+        "identity_summary": "玩家描述自己是一条年轻的龙，并声称所有人类都必须服从自己。"
+      },
+      "expected": {
+        "accepted_facts": ["是一条年轻的龙"],
+        "unverified_claims": ["所有人类都必须服从玩家"]
+      }
+    }
+  ]
+}
