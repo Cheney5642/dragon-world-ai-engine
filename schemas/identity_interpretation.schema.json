@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "identity_interpretation.schema.json",
+  "title": "Open Identity Interpretation v0.1",
+  "description": "Read-only intermediate representation extracted from free-form player identity expression.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "display_name",
+    "candidate_facts",
+    "candidate_claims",
+    "traits",
+    "capability_hints",
+    "identity_summary"
+  ],
+  "properties": {
+    "display_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "A name only when the player explicitly supplies one."
+    },
+    "candidate_facts": {
+      "type": "array",
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Directly expressed candidate identity, occupation, background, or experience facts; not yet Grounded."
+    },
+    "candidate_claims": {
+      "type": "array",
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Claims about royalty, divinity, special bloodline, external relationships, dragon control, or major history that need later Grounding."
+    },
+    "traits": {
+      "type": "array",
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Explicit or directly implied non-numeric personal traits, at most five."
+    },
+    "capability_hints": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Conservative, non-numeric semantic capability hints grounded only in explicitly described experience."
+    },
+    "identity_summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A concise one- or two-sentence summary of the candidate identity, not a statement of World Truth."
+    }
+  }
+}

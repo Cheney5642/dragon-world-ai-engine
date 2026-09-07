@@ -1,0 +1,45 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "input": "我是 Skeld 的年轻渔夫。",
+      "purpose": "ordinary identity and occupation"
+    },
+    {
+      "id": "case_2",
+      "input": "我是一个哥布林商人。",
+      "purpose": "open narrative species"
+    },
+    {
+      "id": "case_3",
+      "input": "我是一条年轻的龙。",
+      "purpose": "player-as-dragon without automatic capabilities"
+    },
+    {
+      "id": "case_4",
+      "input": "我是南方失踪的王子。",
+      "purpose": "royal identity claim"
+    },
+    {
+      "id": "case_5",
+      "input": "Astrid 从小就深爱我。",
+      "purpose": "existing NPC relationship claim"
+    },
+    {
+      "id": "case_6",
+      "input": "所有 Dragon 都已经臣服于我。",
+      "purpose": "world-scale Dragon control claim"
+    },
+    {
+      "id": "case_7",
+      "input": "我什么都不记得。",
+      "purpose": "minimal amnesiac identity"
+    },
+    {
+      "id": "case_8",
+      "input": "帮我随机生成一个角色。",
+      "purpose": "explicit AI-generated candidate identity"
+    }
+  ]
+}
