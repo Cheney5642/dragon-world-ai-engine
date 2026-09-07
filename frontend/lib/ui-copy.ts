@@ -103,6 +103,37 @@ export const UI_COPY = {
     title: "正在加载 Dragon World……",
     detail: "正在同步持久世界状态",
   },
+  opening: {
+    chapter: "序章",
+    title: "你在异世界重生了。",
+    worldPrelude:
+      "这里是北境世界，一个人与龙共舞的低魔世界。龙，是这片土地上最强大、最神秘，也最美丽的生物。",
+    pathPrelude:
+      "它们可能出现在暴风中的悬崖、森林深处、古老遗迹，或海岸之外无人知晓的土地。你可以寻找它们、了解它们、与它们建立羁绊，最终驾驭巨龙自由翱翔。",
+    freedom:
+      "你也可以走上一条完全不同的道路。这个世界没有规定你应该成为谁；你的来历、身份与愿望，将从你自己的讲述开始。",
+    enter: "进入这个世界",
+    arrivalLabel: "SKELD · 北境海岸",
+    arrivalTitle: "你在 Skeld 醒来。",
+    arrivalLead: "海风带着盐与寒意吹过你的脸。",
+    arrivalScene:
+      "远处的云层之间，一个巨大的黑影一闪而过。当你再次睁开眼睛时，你已经站在北境海岸的小村 Skeld。",
+    identitySection: "01 · 开放身份",
+    identityPrompt: "告诉这个世界：你是谁？",
+    identityHint:
+      "不用选择职业、种族或固定背景。用你自己的语言，描述你的名字、来历、性格、愿望，或任何你认为重要的事情。",
+    inputLabel: "你的身份故事",
+    placeholder:
+      "我是一个从南方来到北境的哥布林商人，一直在寻找传说中的巨龙。",
+    start: "开始我的故事",
+    submitting: "世界正在聆听你的故事……",
+    inputRequired: "请先告诉这个世界你是谁。",
+    networkError: "暂时无法听见世界的回应。请确认后端在线后重试。",
+    interpretationError: "世界暂时无法理解这段身份故事，请稍后再试。",
+    persistenceError: "身份暂时无法写入这个世界，请稍后再试。",
+    refreshError: "身份已提交，但世界状态尚未完成同步，请重试。",
+    genericError: "身份初始化暂时失败。你的输入已保留，可以再次尝试。",
+  },
   errors: {
     worldOffline: "Dragon World API 当前离线。",
     backendHint: (baseUrl: string) =>

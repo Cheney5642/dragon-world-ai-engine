@@ -30,6 +30,7 @@ import type { ActionPreviewResponse } from "@/types/action";
 import type { NpcInteractionResponse } from "@/types/npc";
 import type { InventoryEntry, WorldState } from "@/types/world";
 
+import { WorldOpening } from "./world-opening";
 import styles from "./world-shell.module.css";
 
 function formatHour(hour: number): string {
@@ -456,7 +457,10 @@ export function WorldShell() {
     const committedInput = previewedInput;
     const previousLocation =
       worldState?.current_location.name ?? displayLabel(null);
-    const playerName = worldState?.player.name ?? UI_COPY.player.unnamed;
+    const playerName =
+      worldState?.player.display_name ??
+      worldState?.player.name ??
+      UI_COPY.player.unnamed;
     let serverCommitted = false;
 
     commitInFlightRef.current = true;
@@ -518,6 +522,14 @@ export function WorldShell() {
   if (failed || !worldState) {
     return <ErrorState onRetry={handleRetry} />;
   }
+  if (!worldState.player.identity_initialized) {
+    return (
+      <WorldOpening
+        playerId={worldState.player.player_id}
+        onWorldReady={setWorldState}
+      />
+    );
+  }
 
   const { player, world, current_location: location, nearby_npcs: nearbyNpcs } =
     worldState;
@@ -560,7 +572,9 @@ export function WorldShell() {
         <aside className={`${styles.panel} ${styles.playerPanel}`}>
           <PanelTitle
             eyebrow={UI_COPY.player.section}
-            title={player.name ?? UI_COPY.player.unnamed}
+            title={
+              player.display_name ?? player.name ?? UI_COPY.player.unnamed
+            }
           />
 
           <div className={styles.identityGrid}>

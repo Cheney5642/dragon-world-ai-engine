@@ -8,12 +8,16 @@ export type InventoryEntry = string | InventoryItem;
 
 export interface Player {
   id: string;
+  player_id: string;
   name: string | null;
-  species: string;
+  display_name: string | null;
+  species: string | null;
   occupation: string | null;
   current_location: string;
   goals: string[];
   inventory: InventoryEntry[];
+  identity_initialized: boolean;
+  identity_summary: string;
 }
 
 export interface WorldInfo {

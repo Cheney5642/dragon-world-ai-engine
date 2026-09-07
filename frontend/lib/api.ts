@@ -10,6 +10,10 @@ import type {
   NpcInteractRequest,
   NpcInteractionResponse,
 } from "@/types/npc";
+import type {
+  IdentityInitializeRequest,
+  IdentityInitializeResponse,
+} from "@/types/identity";
 import type { WorldState } from "@/types/world";
 
 export const API_BASE_URL = (
@@ -157,13 +161,14 @@ async function readBackendError(response: Response): Promise<unknown> {
   }
 }
 
-type NpcApiPath =
+type JsonPostPath =
   | "/api/npc/interact"
   | "/api/npc/memory/commit"
-  | "/api/npc/relationship/commit";
+  | "/api/npc/relationship/commit"
+  | "/api/player/identity/initialize";
 
-async function postNpc<TRequest, TResponse>(
-  path: NpcApiPath,
+async function postJson<TRequest, TResponse>(
+  path: JsonPostPath,
   request: TRequest,
   signal?: AbortSignal,
 ): Promise<TResponse> {
@@ -219,7 +224,7 @@ export function interactWithNpc(
   request: NpcInteractRequest,
   signal?: AbortSignal,
 ): Promise<NpcInteractionResponse> {
-  return postNpc<NpcInteractRequest, NpcInteractionResponse>(
+  return postJson<NpcInteractRequest, NpcInteractionResponse>(
     "/api/npc/interact",
     request,
     signal,
@@ -230,7 +235,7 @@ export function commitNpcMemory(
   request: NpcCommitRequest,
   signal?: AbortSignal,
 ): Promise<NpcCommitResponse> {
-  return postNpc<NpcCommitRequest, NpcCommitResponse>(
+  return postJson<NpcCommitRequest, NpcCommitResponse>(
     "/api/npc/memory/commit",
     request,
     signal,
@@ -241,8 +246,19 @@ export function commitNpcRelationship(
   request: NpcCommitRequest,
   signal?: AbortSignal,
 ): Promise<NpcCommitResponse> {
-  return postNpc<NpcCommitRequest, NpcCommitResponse>(
+  return postJson<NpcCommitRequest, NpcCommitResponse>(
     "/api/npc/relationship/commit",
+    request,
+    signal,
+  );
+}
+
+export function initializePlayerIdentity(
+  request: IdentityInitializeRequest,
+  signal?: AbortSignal,
+): Promise<IdentityInitializeResponse> {
+  return postJson<IdentityInitializeRequest, IdentityInitializeResponse>(
+    "/api/player/identity/initialize",
     request,
     signal,
   );

@@ -1,0 +1,250 @@
+.openingShell {
+  position: relative;
+  min-height: 100vh;
+  padding: clamp(24px, 6vw, 80px);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 72% 28%, rgba(128, 167, 161, 0.16), transparent 25%),
+    linear-gradient(145deg, rgba(7, 19, 23, 0.38), rgba(3, 9, 12, 0.82));
+}
+
+.atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.atmosphere::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.24;
+  background-image: radial-gradient(rgba(221, 235, 230, 0.4) 0.5px, transparent 0.7px);
+  background-size: 7px 7px;
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000);
+}
+
+.horizon {
+  position: absolute;
+  right: -8%;
+  bottom: -4%;
+  left: -8%;
+  height: 47%;
+  background: linear-gradient(180deg, #17292e, #071115);
+  clip-path: polygon(0 69%, 9% 56%, 18% 62%, 29% 35%, 37% 55%, 49% 25%, 58% 49%, 69% 31%, 80% 57%, 90% 38%, 100% 52%, 100% 100%, 0 100%);
+  opacity: 0.86;
+}
+
+.dragonTrace {
+  position: absolute;
+  top: 21%;
+  right: 16%;
+  width: 150px;
+  height: 54px;
+  border-top: 2px solid rgba(191, 216, 209, 0.42);
+  border-radius: 58% 42% 0 0;
+  transform: rotate(-9deg) skewX(-25deg);
+  filter: drop-shadow(0 0 12px rgba(166, 207, 198, 0.24));
+}
+
+.dragonTrace::before,
+.dragonTrace::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  width: 70px;
+  height: 32px;
+  border-top: 1px solid rgba(191, 216, 209, 0.28);
+}
+
+.dragonTrace::before { left: -52px; transform: rotate(-18deg); }
+.dragonTrace::after { right: -50px; transform: rotate(20deg); }
+
+.introCard,
+.identityCard {
+  width: min(100%, 980px);
+  border: 1px solid rgba(157, 190, 184, 0.2);
+  background: linear-gradient(145deg, rgba(13, 27, 32, 0.9), rgba(4, 12, 16, 0.94));
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(12px);
+}
+
+.introCard {
+  max-width: 720px;
+  padding: clamp(38px, 7vw, 76px);
+}
+
+.brandMark {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--accent);
+  color: var(--accent-bright);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  transform: rotate(45deg);
+}
+
+.brandMark::first-letter { color: #fff; }
+
+.eyebrow,
+.formIndex {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.introCard h1,
+.arrivalCopy h1 {
+  margin-top: 13px;
+  color: var(--text-strong);
+  font-size: clamp(32px, 6vw, 62px);
+  font-weight: 520;
+  letter-spacing: 0.03em;
+  line-height: 1.12;
+}
+
+.storyCopy {
+  max-width: 590px;
+  margin-top: 32px;
+  display: grid;
+  gap: 15px;
+  color: #b5c5c2;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.primaryButton {
+  min-height: 50px;
+  padding: 0 22px;
+  border: 1px solid var(--accent-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  color: var(--text-strong);
+  background: linear-gradient(135deg, rgba(68, 131, 137, 0.34), rgba(24, 54, 61, 0.78));
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.introCard > .primaryButton { margin-top: 38px; }
+.primaryButton:hover:not(:disabled) { border-color: var(--accent); }
+.primaryButton:disabled { cursor: not-allowed; opacity: 0.48; }
+
+.identityCard {
+  display: grid;
+  grid-template-columns: minmax(0, 0.88fr) minmax(400px, 1.12fr);
+}
+
+.arrivalCopy,
+.identityForm { padding: clamp(28px, 5vw, 58px); }
+
+.arrivalCopy {
+  border-right: 1px solid var(--line);
+  background: linear-gradient(160deg, rgba(77, 110, 109, 0.1), transparent 62%);
+}
+
+.arrivalCopy h1 { font-size: clamp(27px, 4vw, 44px); }
+.arrivalCopy > p:last-child,
+.arrivalLead { color: #acbfbc; font-size: 13px; line-height: 1.85; }
+.arrivalLead { margin-top: 29px; color: var(--text-strong); }
+.arrivalCopy > p:last-child { margin-top: 14px; }
+
+.identityForm {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.identityForm h2 {
+  margin-top: 9px;
+  color: var(--text-strong);
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 540;
+}
+
+.formHint {
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.identityForm label {
+  margin: 26px 0 9px;
+  color: #b9cbc7;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.identityForm textarea {
+  min-height: 190px;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  outline: none;
+  padding: 17px;
+  color: var(--text-strong);
+  background: rgba(1, 8, 11, 0.72);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.identityForm textarea:focus {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 2px rgba(91, 171, 176, 0.08);
+}
+
+.identityForm textarea::placeholder { color: #5f7377; }
+.identityForm textarea:disabled { cursor: wait; opacity: 0.68; }
+
+.formFooter {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.formFooter > span { color: var(--muted); font-size: 10px; }
+.formFooter .primaryButton { min-width: 190px; }
+
+.errorMessage {
+  margin-top: 14px;
+  padding: 11px 13px;
+  border: 1px solid rgba(175, 101, 91, 0.38);
+  color: #e2aaa1;
+  background: rgba(90, 39, 34, 0.18);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 780px) {
+  .openingShell { padding: 14px; align-items: start; }
+  .introCard { margin-top: 12vh; }
+  .identityCard { grid-template-columns: 1fr; }
+  .arrivalCopy { border-right: 0; border-bottom: 1px solid var(--line); }
+  .dragonTrace { right: -25px; }
+}
+
+@media (max-width: 500px) {
+  .introCard,
+  .arrivalCopy,
+  .identityForm { padding: 26px 22px; }
+  .formFooter { align-items: stretch; flex-direction: column; }
+  .formFooter .primaryButton { width: 100%; }
+}
