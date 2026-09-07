@@ -22,6 +22,11 @@ from database.persistence import (
     PersistenceMappingError,
     PostgresPersistenceAdapter,
 )
+from identity.runtime_context import (
+    PlayerIdentityRuntimeError,
+    build_legacy_player_identity_read_model,
+    build_player_identity_read_model,
+)
 from llm import LLMProviderError
 from npc.interaction_runtime import StructuredOutputProvider
 from scripts import execute_action
@@ -45,6 +50,9 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
     """Return only the public fields required by the v0.1 demo UI."""
 
     player = world_state["player"]
+    identity = player.get("identity")
+    if not isinstance(identity, dict):
+        identity = build_legacy_player_identity_read_model(player)
     world = world_state["world"]
     locations = world_state["locations"]
     current_location_id = player.get("current_location")
@@ -72,12 +80,16 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
     return {
         "player": {
             "id": player.get("id"),
+            "player_id": player.get("id"),
             "name": player.get("name"),
+            "display_name": identity["display_name"],
             "species": player.get("species"),
             "occupation": player.get("occupation"),
             "current_location": current_location_id,
             "goals": player.get("goals", []),
             "inventory": player.get("inventory", []),
+            "identity_initialized": identity["identity_initialized"],
+            "identity_summary": identity["identity_summary"],
         },
         "world": {
             "name": world.get("name"),
@@ -137,10 +149,12 @@ def _load_postgres_world(
 
         player = persistence.get_player(player_id)
         player_state = persistence.get_player_state(player_id)
-        if player is None or player_state is None or player.get("species") is None:
+        if player is None or player_state is None:
             raise interpret_action.NoPlayerError(
                 "No player exists in PostgreSQL Runtime State."
             )
+
+        player_identity = build_player_identity_read_model(player, player_state)
 
         runtime_player = copy.deepcopy(seed_player)
         runtime_player.update(
@@ -154,6 +168,7 @@ def _load_postgres_world(
                 "current_location": player_state["current_location"],
                 "inventory": copy.deepcopy(player_state["inventory"]),
                 "goals": copy.deepcopy(player_state["goals"]),
+                "identity": player_identity,
             }
         )
         world_state["player"] = runtime_player
@@ -211,7 +226,10 @@ def _load_postgres_world(
                 "Create and migrate a player first."
             ),
         ) from exc
-    except interpret_action.ActionInterpretationError as exc:
+    except (
+        interpret_action.ActionInterpretationError,
+        PlayerIdentityRuntimeError,
+    ) as exc:
         raise HTTPException(
             status_code=500,
             detail="The PostgreSQL Runtime World State is invalid.",

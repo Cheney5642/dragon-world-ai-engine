@@ -10,6 +10,12 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
+from identity.runtime_context import (
+    PlayerIdentityRuntimeError,
+    build_legacy_player_identity_read_model,
+    build_npc_player_identity_context,
+)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROFILES_PATH = PROJECT_ROOT / "data" / "npcs" / "anchor_npcs.json"
@@ -202,6 +208,21 @@ def build_npc_context(
     if not isinstance(world, dict):
         raise NpcContextError("World State does not contain valid world data.")
 
+    player_identity = player.get("identity")
+    if not isinstance(player_identity, dict):
+        try:
+            player_identity = build_legacy_player_identity_read_model(player)
+        except PlayerIdentityRuntimeError as exc:
+            raise NpcContextError(
+                f"Player Identity Context could not be built: {exc}"
+            ) from exc
+    try:
+        npc_player_identity = build_npc_player_identity_context(player_identity)
+    except PlayerIdentityRuntimeError as exc:
+        raise NpcContextError(
+            f"Player Identity Context could not be built: {exc}"
+        ) from exc
+
     context = {
         "npc": {
             "id": profile["id"],
@@ -223,6 +244,7 @@ def build_npc_context(
             "species": player.get("species"),
             "occupation": player.get("occupation"),
             "current_location": player_location_id,
+            "identity": npc_player_identity,
         },
         "shared_context": {
             "same_location": npc_location_id == player_location_id,

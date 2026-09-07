@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "npc_context.schema.json",
-  "title": "NPC Runtime Context v0.1",
+  "title": "NPC Runtime Context v0.2",
   "description": "为单次 NPC Runtime 调用构建的最小、只读、受 Knowledge 限制的上下文。",
   "type": "object",
   "additionalProperties": false,
@@ -125,7 +125,8 @@
         "name",
         "species",
         "occupation",
-        "current_location"
+        "current_location",
+        "identity"
       ],
       "properties": {
         "id": {
@@ -153,6 +154,64 @@
         "current_location": {
           "type": "string",
           "minLength": 1
+        },
+        "identity": {
+          "type": "object",
+          "description": "Versioned Open Identity context. Unverified claims remain explicitly labelled as Player claims and are not World Truth.",
+          "additionalProperties": false,
+          "required": [
+            "display_name",
+            "identity_initialized",
+            "accepted_facts",
+            "unverified_claims",
+            "capability_hints",
+            "identity_summary"
+          ],
+          "properties": {
+            "display_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "identity_initialized": {
+              "type": "boolean"
+            },
+            "accepted_facts": {
+              "type": "array",
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "unverified_claims": {
+              "type": "array",
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^Player claim \\(unverified\\): "
+              }
+            },
+            "capability_hints": {
+              "type": "array",
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "identity_summary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
         }
       }
     },

@@ -179,12 +179,16 @@ class WebApiSmokeTests(unittest.TestCase):
             set(payload["player"]),
             {
                 "id",
+                "player_id",
                 "name",
+                "display_name",
                 "species",
                 "occupation",
                 "current_location",
                 "goals",
                 "inventory",
+                "identity_initialized",
+                "identity_summary",
             },
         )
         self.assertEqual(
