@@ -33,6 +33,10 @@ class PersistenceMappingError(ValueError):
     """Raised when input cannot map to the Frozen PostgreSQL schema."""
 
 
+class IdentityAlreadyInitializedError(PersistenceMappingError):
+    """Raised when a different Origin Identity would overwrite an existing one."""
+
+
 _IDENTITY_CONTEXT_UNSET = object()
 
 
@@ -170,6 +174,84 @@ class PostgresPersistenceAdapter:
                     )
             session.flush()
             return _player_state_record(record)
+
+    def commit_initial_identity(
+        self,
+        *,
+        player_id: str,
+        display_name: str | None,
+        traits: Sequence[str],
+        identity_context: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically initialize one already-existing Player's Origin Identity.
+
+        The caller supplies validated B1/B2-derived data. Rows are locked so two
+        concurrent initializations cannot both observe an uninitialized state.
+        This method never creates a missing Player or PlayerState.
+        """
+
+        normalized_name = (
+            display_name.strip()
+            if isinstance(display_name, str) and display_name.strip()
+            else None
+        )
+        normalized_traits = list(traits)
+        normalized_context = dict(identity_context)
+
+        with self._write_session() as session:
+            player = session.scalar(
+                select(Player)
+                .where(Player.player_id == player_id)
+                .with_for_update()
+            )
+            if player is None:
+                raise PersistenceMappingError(
+                    f"Player does not exist: {player_id}"
+                )
+
+            player_state = session.scalar(
+                select(PlayerState)
+                .where(PlayerState.player_id == player_id)
+                .with_for_update()
+            )
+            if player_state is None:
+                raise PersistenceMappingError(
+                    f"PlayerState does not exist: {player_id}"
+                )
+
+            existing_context = player_state.identity_context
+            if existing_context is not None:
+                same_context = dict(existing_context) == normalized_context
+                same_traits = list(player.traits) == normalized_traits
+                same_name = (
+                    normalized_name is None or player.name == normalized_name
+                )
+                if (
+                    existing_context.get("identity_initialized") is True
+                    and same_context
+                    and same_traits
+                    and same_name
+                ):
+                    return {
+                        "status": "already_applied",
+                        "player": _player_record(player),
+                        "player_state": _player_state_record(player_state),
+                    }
+                raise IdentityAlreadyInitializedError(
+                    "identity_already_initialized"
+                )
+
+            if normalized_name is not None:
+                player.name = normalized_name
+            player.traits = normalized_traits
+            player_state.identity_context = normalized_context
+            session.flush()
+
+            return {
+                "status": "committed",
+                "player": _player_record(player),
+                "player_state": _player_state_record(player_state),
+            }
 
     def list_npc_memories(
         self,
