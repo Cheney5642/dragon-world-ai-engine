@@ -20,11 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from database.models import (
+    Dragon,
     InteractionEvent,
     Npc,
     NpcMemory,
     NpcRelationship,
     Player,
+    PlayerDragonBond,
     PlayerState,
 )
 
@@ -139,6 +141,88 @@ class PostgresPersistenceAdapter:
         with self._read_session() as session:
             record = session.get(PlayerState, player_id)
             return _player_state_record(record) if record is not None else None
+
+    def has_rideable_dragon(self, player_id: str) -> bool:
+        """Read the existing Dragon/Bond authorization without mutation."""
+
+        statement = (
+            select(PlayerDragonBond.player_id)
+            .join(Dragon, Dragon.dragon_id == PlayerDragonBond.dragon_id)
+            .where(
+                PlayerDragonBond.player_id == player_id,
+                PlayerDragonBond.riding_unlocked.is_(True),
+                Dragon.taming_state == "tamed",
+            )
+            .limit(1)
+        )
+        with self._read_session() as session:
+            return session.scalar(statement) is not None
+
+    def commit_free_action(
+        self,
+        *,
+        player_id: str,
+        expected_current_location: str,
+        expected_goals: Sequence[str],
+        state_changes: Mapping[str, Any],
+        event: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically commit one allowlisted D2 effect and Interaction Event."""
+
+        if not set(state_changes).issubset({"current_location", "goals"}):
+            raise PersistenceMappingError("D2 state change is outside the allowlist.")
+        world_context = _required_mapping(event, "world_context")
+        event_payload = _required_mapping(event, "event_payload")
+        with self._write_session() as session:
+            player_state = session.scalar(
+                select(PlayerState)
+                .where(PlayerState.player_id == player_id)
+                .with_for_update()
+            )
+            if player_state is None:
+                raise PersistenceMappingError(f"PlayerState does not exist: {player_id}")
+            if (
+                player_state.current_location != expected_current_location
+                or list(player_state.goals) != list(expected_goals)
+            ):
+                raise PersistenceMappingError("PlayerState changed before D2 commit.")
+
+            new_location = state_changes.get("current_location")
+            if new_location is not None:
+                if not isinstance(new_location, str) or not new_location:
+                    raise PersistenceMappingError("current_location change is invalid.")
+                player_state.current_location = new_location
+            new_goals = state_changes.get("goals")
+            if new_goals is not None:
+                if not isinstance(new_goals, list) or not all(
+                    isinstance(goal, str) and goal.strip() for goal in new_goals
+                ):
+                    raise PersistenceMappingError("goals change is invalid.")
+                player_state.goals = list(new_goals)
+
+            record = InteractionEvent(
+                event_id=event["event_id"],
+                event_type=event["event_type"],
+                player_id=player_id,
+                npc_id=None,
+                world_day=world_context["world_day"],
+                world_hour=world_context["world_hour"],
+                location_id=world_context["location_id"],
+                player_utterance=event["player_utterance"],
+                npc_response=None,
+                topic=None,
+                player_claims=list(event.get("player_claims", [])),
+                memory_candidate=None,
+                relationship_signal=None,
+                event_payload=dict(event_payload),
+            )
+            session.add(record)
+            session.flush()
+            session.refresh(record)
+            return {
+                "player_state": _player_state_record(player_state),
+                "interaction_event": _interaction_event_record(record),
+            }
 
     def upsert_player_state(
         self,
