@@ -14,6 +14,14 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.npc_api import register_npc_routes
 from core import action_pipeline
+from core.free_action_interpreter import (
+    ActionInterpretationError as FreeActionInterpretationError,
+    interpret_action as interpret_free_action,
+)
+from core.free_action_resolution import (
+    ActionResolutionError,
+    commit_action_resolution,
+)
 from database.connection import (
     DatabaseConfigurationError,
     create_database_engine,
@@ -57,6 +65,15 @@ class ActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input: str
+
+
+class FreeActionExecuteRequest(BaseModel):
+    """Untrusted D2 input; resolved state changes are never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    player_id: str = Field(max_length=128)
+    player_input: str = Field(max_length=4000)
 
 
 class IdentityInitializeRequest(BaseModel):
@@ -357,6 +374,67 @@ def _pipeline_http_error(exc: Exception) -> HTTPException:
     )
 
 
+def _free_action_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, LLMProviderError):
+        return HTTPException(
+            status_code=502,
+            detail="The configured LLM provider could not interpret the action.",
+        )
+    if isinstance(exc, FreeActionInterpretationError):
+        return HTTPException(
+            status_code=422,
+            detail="The action interpreter could not produce a valid action.",
+        )
+    if isinstance(exc, ActionResolutionError):
+        return HTTPException(
+            status_code=409,
+            detail="The action could not be resolved against the current world.",
+        )
+    if isinstance(
+        exc,
+        (DatabaseConfigurationError, PersistenceMappingError, SQLAlchemyError),
+    ):
+        return HTTPException(
+            status_code=500,
+            detail="PostgreSQL Runtime State is unavailable.",
+        )
+    return HTTPException(
+        status_code=500,
+        detail="An internal Dragon World API error occurred.",
+    )
+
+
+def _free_action_player_message(resolution: dict[str, Any]) -> str:
+    reason_code = resolution.get("reason_code")
+    messages = {
+        "known_travel": "你已抵达目的地。",
+        "already_at_destination": "你已经在目的地。",
+        "goal_added": "新的目标已经记录。",
+        "goal_already_present": "这个目标已经存在。",
+        "goal_removed": "目标已经移除。",
+        "goal_not_present": "这个目标当前不存在。",
+        "open_exploration_recorded": "你开始沿这个方向探索。",
+        "dragon_riding_not_grounded": "你目前没有一条已驯服且允许骑乘的龙。",
+        "dragon_runtime_required": "这个行动需要由 Dragon Runtime 继续处理。",
+        "destination_missing": "这个行动缺少明确目的地。",
+        "destination_not_grounded": "这个目的地尚未成为世界中的已知地点。",
+        "no_direct_route": "当前位置没有通往该目的地的直接路线。",
+        "destination_unreachable": "当前世界中暂时没有可到达该地点的已知路线。",
+        "goal_limit_reached": "当前无法记录更多目标。",
+        "language_ambiguous": "这个行动还需要更明确的描述。",
+        "npc_runtime_required": "这个行动需要由 NPC Runtime 继续处理。",
+        "conflict_runtime_unavailable": "这个冲突行动当前只能作为叙事意图记录。",
+        "narrative_only": "这个行动已作为当前世界中的叙事行动记录。",
+    }
+    if isinstance(reason_code, str) and reason_code in messages:
+        return messages[reason_code]
+    if resolution.get("status") == "blocked":
+        return "当前世界条件不允许这个行动成为事实。"
+    if resolution.get("status") == "partial":
+        return "这个行动已被部分处理。"
+    return "行动已经处理。"
+
+
 def create_app(
     save_path: Path | None = None,
     *,
@@ -364,6 +442,7 @@ def create_app(
     relationship_store_path: Path | None = None,
     npc_provider_client: StructuredOutputProvider | None = None,
     identity_provider_client: LLMProviderClient | None = None,
+    action_provider_client: LLMProviderClient | None = None,
     persistence_adapter: PostgresPersistenceAdapter | None = None,
 ) -> FastAPI:
     # Explicit path injection is retained only for existing isolated tests. The
@@ -594,6 +673,42 @@ def create_app(
             raise
         except Exception as exc:
             raise _pipeline_http_error(exc) from exc
+
+    @application.post("/api/action/execute")
+    def execute_free_action(request: FreeActionExecuteRequest) -> dict[str, Any]:
+        player_id = request.player_id.strip()
+        player_input = request.player_input.strip()
+        if not player_id:
+            raise HTTPException(status_code=400, detail="player_id must not be empty.")
+        if not player_input:
+            raise HTTPException(status_code=400, detail="player_input must not be empty.")
+        if persistence_adapter is None:
+            raise HTTPException(
+                status_code=500,
+                detail="PostgreSQL Runtime State is unavailable.",
+            )
+
+        try:
+            structured_action = interpret_free_action(
+                player_input,
+                provider_client=action_provider_client,
+            )
+            committed = commit_action_resolution(
+                player_id=player_id,
+                player_input=player_input,
+                structured_action=structured_action,
+                persistence=persistence_adapter,
+            )
+            resolution = committed["resolution"]
+            return {
+                "structured_action": structured_action,
+                "resolution": resolution,
+                "player_message": _free_action_player_message(resolution),
+            }
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise _free_action_http_error(exc) from exc
 
     @application.post("/api/action/commit")
     def commit_action(request: ActionRequest) -> dict[str, Any]:

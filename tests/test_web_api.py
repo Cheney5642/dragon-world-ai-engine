@@ -8,12 +8,27 @@ import json
 import shutil
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from sqlalchemy import delete, func, select
+
 from api.app import app, create_app
 from core.action_pipeline import ActionPipelineResources
+from database import create_database_engine, create_session_factory
+from database.models import (
+    Dragon,
+    InteractionEvent,
+    Npc,
+    NpcMemory,
+    NpcRelationship,
+    Player,
+    PlayerDragonBond,
+    PlayerState,
+)
+from database.persistence import PostgresPersistenceAdapter
 from scripts import execute_action, interpret_action, validate_action
 from scripts.interpret_action import SAVE_PATH
 
@@ -91,8 +106,10 @@ class FakeStructuredProvider:
 
     def __init__(self, outputs: dict[str, dict[str, Any]]) -> None:
         self.outputs = outputs
+        self.calls: list[str] = []
 
     def create_structured_output(self, *, schema_name: str, **_: Any) -> str:
+        self.calls.append(schema_name)
         return json.dumps(self.outputs[schema_name], ensure_ascii=False)
 
 
@@ -281,6 +298,183 @@ class WebApiSmokeTests(unittest.TestCase):
             )
 
         self.assertEqual(production_before, file_hash())
+
+
+class FreeActionExecuteApiTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.engine = create_database_engine()
+        cls.session_factory = create_session_factory(cls.engine)
+        cls.persistence = PostgresPersistenceAdapter(cls.session_factory)
+        cls.player_id = f"test_d2d1_{uuid.uuid4().hex}"
+        cls.persistence.ensure_player(
+            player_id=cls.player_id,
+            name="D2-D1 Test Player",
+            species="human",
+            occupation=None,
+            background=None,
+            traits=[],
+        )
+        cls.persistence.upsert_player_state(
+            player_id=cls.player_id,
+            current_location="skeld_village",
+            inventory=[],
+            goals=[],
+            identity_context={},
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        with cls.session_factory.begin() as session:
+            session.execute(
+                delete(InteractionEvent).where(
+                    InteractionEvent.player_id == cls.player_id
+                )
+            )
+            session.execute(
+                delete(PlayerState).where(PlayerState.player_id == cls.player_id)
+            )
+            session.execute(delete(Player).where(Player.player_id == cls.player_id))
+        cls.engine.dispose()
+
+    def setUp(self) -> None:
+        with self.session_factory.begin() as session:
+            session.execute(
+                delete(InteractionEvent).where(
+                    InteractionEvent.player_id == self.player_id
+                )
+            )
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="skeld_village",
+            inventory=[],
+            goals=[],
+        )
+        self.protected_counts = self._protected_counts()
+
+    def tearDown(self) -> None:
+        self.assertEqual(self._protected_counts(), self.protected_counts)
+
+    def _protected_counts(self) -> dict[str, int]:
+        with self.session_factory() as session:
+            return {
+                model.__tablename__: session.scalar(
+                    select(func.count()).select_from(model)
+                )
+                for model in (
+                    Npc,
+                    NpcMemory,
+                    NpcRelationship,
+                    Dragon,
+                    PlayerDragonBond,
+                )
+            }
+
+    def _execute(
+        self,
+        player_input: str,
+        structured_action: dict[str, Any],
+    ) -> tuple[int, dict[str, Any], FakeStructuredProvider]:
+        provider = FakeStructuredProvider(
+            {"free_action_interpretation": structured_action}
+        )
+        application = create_app(
+            action_provider_client=provider,  # type: ignore[arg-type]
+            persistence_adapter=self.persistence,
+        )
+        status, payload = asyncio.run(
+            asgi_request(
+                "/api/action/execute",
+                method="POST",
+                body={
+                    "player_id": self.player_id,
+                    "player_input": player_input,
+                },
+                application=application,
+            )
+        )
+        return status, payload, provider
+
+    def test_case_1_known_travel_uses_d2_and_updates_postgres(self) -> None:
+        status, payload, provider = self._execute(
+            "我要去 Whispering Woods。",
+            {
+                "action_family": "travel",
+                "action": "前往 Whispering Woods",
+                "target": None,
+                "destination": "Whispering Woods",
+                "direction": None,
+                "intent": None,
+                "method": None,
+                "explicit_goal": None,
+                "needs_clarification": False,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(provider.calls, ["free_action_interpretation"])
+        self.assertEqual(payload["resolution"]["reason_code"], "known_travel")
+        self.assertEqual(
+            self.persistence.get_player_state(self.player_id)["current_location"],
+            "whispering_woods",
+        )
+
+    def test_case_2_explicit_goal_updates_postgres(self) -> None:
+        status, payload, provider = self._execute(
+            "我的目标是找到一枚龙蛋。",
+            {
+                "action_family": "other",
+                "action": "声明长期目标",
+                "target": None,
+                "destination": None,
+                "direction": None,
+                "intent": "找到一枚龙蛋",
+                "method": None,
+                "explicit_goal": {
+                    "operation": "add",
+                    "goal": "找到一枚龙蛋",
+                },
+                "needs_clarification": False,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(provider.calls, ["free_action_interpretation"])
+        self.assertEqual(
+            payload["structured_action"]["explicit_goal"],
+            {"operation": "add", "goal": "找到一枚龙蛋"},
+        )
+        self.assertEqual(payload["resolution"]["reason_code"], "goal_added")
+        self.assertEqual(
+            self.persistence.get_player_state(self.player_id)["goals"],
+            ["找到一枚龙蛋"],
+        )
+
+    def test_case_3_ungrounded_dragon_ride_is_blocked(self) -> None:
+        status, payload, provider = self._execute(
+            "我要骑我的龙去 Stormcliff。",
+            {
+                "action_family": "travel",
+                "action": "骑我的龙去 Stormcliff",
+                "target": "我的龙",
+                "destination": "Stormcliff",
+                "direction": None,
+                "intent": "骑龙前往 Stormcliff",
+                "method": "骑我的龙",
+                "explicit_goal": None,
+                "needs_clarification": False,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(provider.calls, ["free_action_interpretation"])
+        self.assertEqual(payload["resolution"]["status"], "blocked")
+        self.assertEqual(payload["resolution"]["domain_route"], "dragon")
+        self.assertEqual(
+            payload["resolution"]["reason_code"],
+            "dragon_riding_not_grounded",
+        )
+        self.assertEqual(
+            self.persistence.get_player_state(self.player_id)["current_location"],
+            "skeld_village",
+        )
 
 
 if __name__ == "__main__":

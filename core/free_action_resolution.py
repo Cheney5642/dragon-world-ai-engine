@@ -6,6 +6,7 @@ import copy
 import json
 import re
 import uuid
+from collections import deque
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -109,6 +110,41 @@ def _resolve_destination(
     return matches[0] if len(matches) == 1 else None
 
 
+def _is_location_reachable(
+    current_location: str,
+    destination_id: str,
+    locations: Mapping[str, Any],
+) -> bool:
+    """Follow only authored directed connections; fail closed on invalid edges."""
+
+    if current_location not in locations or destination_id not in locations:
+        return False
+
+    graph: dict[str, tuple[str, ...]] = {}
+    for location_id, location in locations.items():
+        if not isinstance(location_id, str) or not isinstance(location, Mapping):
+            return False
+        connections = location.get("connections")
+        if not isinstance(connections, list) or not all(
+            isinstance(connection, str) and connection in locations
+            for connection in connections
+        ):
+            return False
+        graph[location_id] = tuple(connections)
+
+    visited = {current_location}
+    pending = deque([current_location])
+    while pending:
+        location_id = pending.popleft()
+        for connected_id in graph[location_id]:
+            if connected_id == destination_id:
+                return True
+            if connected_id not in visited:
+                visited.add(connected_id)
+                pending.append(connected_id)
+    return False
+
+
 def _goal_key(goal: str) -> str:
     value = _normalized(goal)
     replacements = (
@@ -202,10 +238,12 @@ def resolve_action(
             return _result("blocked", "narrative_only", "destination_not_grounded")
         if destination_id == current_location:
             return _result("success", "narrative_only", "already_at_destination")
-        location = locations[current_location]
-        connections = location.get("connections") if isinstance(location, Mapping) else None
-        if not isinstance(connections, list) or destination_id not in connections:
-            return _result("blocked", "narrative_only", "no_direct_route")
+        if not _is_location_reachable(
+            current_location,
+            destination_id,
+            locations,
+        ):
+            return _result("blocked", "narrative_only", "destination_unreachable")
         return _result(
             "success", "player_state", "known_travel",
             state_changes={"current_location": destination_id},

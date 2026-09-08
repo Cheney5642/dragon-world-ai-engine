@@ -1,5 +1,66 @@
 import type { Player } from "@/types/world";
 
+export type FreeActionFamily =
+  | "travel"
+  | "explore"
+  | "observe_search"
+  | "interact"
+  | "use_acquire"
+  | "create_trade"
+  | "conflict"
+  | "rest_wait"
+  | "other";
+
+export interface ExplicitGoal {
+  operation: "add" | "remove";
+  goal: string;
+}
+
+export interface StructuredFreeAction {
+  action_family: FreeActionFamily;
+  action: string;
+  target: string | null;
+  destination: string | null;
+  direction: string | null;
+  intent: string | null;
+  method: string | null;
+  explicit_goal: ExplicitGoal | null;
+  needs_clarification: boolean;
+}
+
+export type FreeActionStatus =
+  | "success"
+  | "partial"
+  | "blocked"
+  | "needs_clarification";
+
+export type FreeActionEffectScope =
+  | "narrative_only"
+  | "player_state"
+  | "domain_route";
+
+export interface FreeActionResolution {
+  status: FreeActionStatus;
+  effect_scope: FreeActionEffectScope;
+  reason_code: string | null;
+  domain_route: "npc" | "dragon" | null;
+  state_changes: {
+    current_location?: string;
+    goals?: string[];
+  };
+}
+
+export interface ActionExecuteRequest {
+  player_id: string;
+  player_input: string;
+}
+
+export interface ActionExecuteResponse {
+  structured_action: StructuredFreeAction;
+  resolution: FreeActionResolution;
+  player_message: string;
+}
+
 export type ActionKind =
   | "speech"
   | "movement"

@@ -9,9 +9,9 @@ import {
   commitNpcMemory,
   commitNpcRelationship,
   DragonWorldApiError,
+  executeAction,
   getWorldState,
   interactWithNpc,
-  previewAction,
 } from "@/lib/api";
 import {
   ACTION_KIND_COPY,
@@ -369,33 +369,39 @@ export function WorldShell() {
 
   async function handleActionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const input = actionInput;
-    if (!input.trim() || previewLoading || committing) return;
+    const input = actionInput.trim();
+    if (!input || previewLoading || committing || commitInFlightRef.current) return;
 
+    commitInFlightRef.current = true;
     setPreviewLoading(true);
+    setCommitting(true);
     setActionError(null);
     setActionPreview(null);
     setPreviewedInput(null);
-    setCommitStatus("not_requested");
+    setCommitStatus("committing");
     setConsoleMessage(UI_COPY.action.interpreting);
 
     try {
-      const preview = await previewAction(input);
-      setActionPreview(preview);
-      setPreviewedInput(input);
-      setCommitStatus(isCommitEligible(preview) ? "ready" : "not_requested");
-      setConsoleMessage(
-        UI_COPY.action.previewReady(
-          PIPELINE_STATUS_COPY[preview.pipeline_status],
-        ),
-      );
+      const result = await executeAction({
+        player_id: "player_001",
+        player_input: input,
+      });
+      const latestWorld = await getWorldState();
+      setWorldState(latestWorld);
+      setWorldLogMessage(result.player_message);
+      setActionInput("");
+      setCommitStatus("committed");
+      setConsoleMessage(result.player_message);
     } catch (error: unknown) {
       setActionError(
-        actionErrorMessage(error, UI_COPY.errors.previewFallback),
+        actionErrorMessage(error, UI_COPY.errors.commitFallback),
       );
-      setConsoleMessage(UI_COPY.action.previewFailed);
+      setCommitStatus("failed");
+      setConsoleMessage(UI_COPY.action.commitFailed);
     } finally {
+      commitInFlightRef.current = false;
       setPreviewLoading(false);
+      setCommitting(false);
     }
   }
 
@@ -872,8 +878,8 @@ export function WorldShell() {
             >
               <span>
                 {previewLoading
-                  ? UI_COPY.action.previewing
-                  : UI_COPY.action.preview}
+                  ? UI_COPY.action.executing
+                  : UI_COPY.action.execute}
               </span>
               <span aria-hidden="true">→</span>
             </button>

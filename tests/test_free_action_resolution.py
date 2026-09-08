@@ -153,15 +153,38 @@ class FreeActionResolutionTests(unittest.TestCase):
 
     def test_case_1_known_travel_commits_location_and_event(self) -> None:
         result = self._commit(
-            "我要去 Whispering Woods。",
-            action("travel", "前往 Whispering Woods", destination="Whispering Woods"),
+            "我要去 Stormcliff。",
+            action("travel", "前往 Stormcliff", destination="Stormcliff"),
             "case_1",
         )
         self.assertEqual(result["resolution"]["status"], "success")
         self.assertEqual(result["resolution"]["effect_scope"], "player_state")
-        self.assertEqual(result["player_state"]["current_location"], "whispering_woods")
+        self.assertEqual(result["player_state"]["current_location"], "stormcliff")
         self.assertEqual(result["player_state"]["inventory"], [])
         self._assert_event(result, f"{self.event_prefix}case_1")
+
+    def test_case_1b_indirect_known_travel_commits_only_destination(self) -> None:
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="whispering_woods",
+            inventory=[],
+            goals=[],
+        )
+        result = self._commit(
+            "我要去 Stormcliff。",
+            action("travel", "前往 Stormcliff", destination="Stormcliff"),
+            "case_1b",
+        )
+        self.assertEqual(result["resolution"]["status"], "success")
+        self.assertEqual(result["resolution"]["reason_code"], "known_travel")
+        self.assertEqual(
+            result["resolution"]["state_changes"],
+            {"current_location": "stormcliff"},
+        )
+        self.assertEqual(result["player_state"]["current_location"], "stormcliff")
+        self.assertEqual(result["player_state"]["goals"], [])
+        self.assertEqual(result["player_state"]["inventory"], [])
+        self._assert_event(result, f"{self.event_prefix}case_1b")
 
     def test_case_2_open_exploration_is_narrative_only(self) -> None:
         result = self._commit(
@@ -214,6 +237,50 @@ class FreeActionResolutionTests(unittest.TestCase):
         self.assertEqual(result["resolution"]["reason_code"], "destination_not_grounded")
         self.assertEqual(result["player_state"]["current_location"], "skeld_village")
         self._assert_event(result, f"{self.event_prefix}case_5")
+
+    def test_case_5a_known_but_unreachable_location_is_blocked(self) -> None:
+        isolated_skeleton = copy.deepcopy(self.skeleton)
+        isolated_skeleton["locations"]["isolated_peak"] = {
+            "id": "isolated_peak",
+            "name": "Isolated Peak",
+            "type": "wild_area",
+            "connections": [],
+        }
+        result = commit_action_resolution(
+            player_id=self.player_id,
+            player_input="我要去 Isolated Peak。",
+            structured_action=action(
+                "travel",
+                "前往 Isolated Peak",
+                destination="Isolated Peak",
+            ),
+            persistence=self.persistence,
+            world_skeleton=isolated_skeleton,
+            event_id=f"{self.event_prefix}case_5a",
+        )
+        self.assertEqual(result["resolution"]["status"], "blocked")
+        self.assertEqual(
+            result["resolution"]["reason_code"],
+            "destination_unreachable",
+        )
+        self.assertEqual(result["resolution"]["state_changes"], {})
+        self.assertEqual(result["player_state"]["current_location"], "skeld_village")
+        self._assert_event(result, f"{self.event_prefix}case_5a")
+
+    def test_case_5b_current_location_destination_is_idempotent(self) -> None:
+        result = self._commit(
+            "我要去 Skeld。",
+            action("travel", "前往 Skeld", destination="Skeld"),
+            "case_5b",
+        )
+        self.assertEqual(result["resolution"]["status"], "success")
+        self.assertEqual(
+            result["resolution"]["reason_code"],
+            "already_at_destination",
+        )
+        self.assertEqual(result["resolution"]["state_changes"], {})
+        self.assertEqual(result["player_state"]["current_location"], "skeld_village")
+        self._assert_event(result, f"{self.event_prefix}case_5b")
 
     def test_case_6_goal_add_is_idempotent(self) -> None:
         structured = action(

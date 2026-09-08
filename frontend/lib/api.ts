@@ -1,5 +1,7 @@
 import type {
   ActionCommitResponse,
+  ActionExecuteRequest,
+  ActionExecuteResponse,
   ActionPreviewResponse,
 } from "@/types/action";
 import { UI_COPY } from "@/lib/ui-copy";
@@ -137,6 +139,41 @@ export function commitAction(
     input,
     signal,
   );
+}
+
+export async function executeAction(
+  request: ActionExecuteRequest,
+  signal?: AbortSignal,
+): Promise<ActionExecuteResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/action/execute`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+      cache: "no-store",
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new DragonWorldHttpError(
+        UI_COPY.errors.http(response.status),
+        response.status,
+      );
+    }
+
+    return (await response.json()) as ActionExecuteResponse;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+    if (error instanceof DragonWorldApiError) {
+      throw error;
+    }
+    throw new DragonWorldNetworkError(UI_COPY.errors.worldOffline);
+  }
 }
 
 function isBackendErrorDetail(value: unknown): value is BackendErrorDetail {
