@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "free_action_interpretation.schema.json",
+  "title": "D2 Action Interpreter v0.1",
+  "description": "Player intent only. No world facts, resolution or mutation authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["action_family", "action", "target", "destination", "direction", "intent", "method", "explicit_goal", "needs_clarification"],
+  "properties": {
+    "action_family": {
+      "type": "string",
+      "enum": ["travel", "explore", "observe_search", "interact", "use_acquire", "create_trade", "conflict", "rest_wait", "other"]
+    },
+    "action": {"type": "string", "minLength": 1, "description": "Concise description of what the player is attempting, never an outcome."},
+    "target": {"type": ["string", "null"], "minLength": 1, "description": "Explicit action object as mentioned by the player; not a resolved entity or verified ownership."},
+    "destination": {"type": ["string", "null"], "minLength": 1, "description": "Explicitly named or described travel destination, without existence validation or entity IDs."},
+    "direction": {"type": ["string", "null"], "minLength": 1, "description": "Open exploration direction, only when there is no explicit destination."},
+    "intent": {"type": ["string", "null"], "minLength": 1, "description": "Purpose explicitly expressed by the player, not an achieved result."},
+    "method": {"type": ["string", "null"], "minLength": 1, "description": "Explicitly stated action method, otherwise null."},
+    "explicit_goal": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "goal"],
+          "properties": {
+            "operation": {"type": "string", "enum": ["add", "remove"]},
+            "goal": {"type": "string", "minLength": 1, "description": "Long-term goal explicitly established or cancelled by the player."}
+          }
+        }
+      ]
+    },
+    "needs_clarification": {"type": "boolean", "description": "True only for unresolved linguistic ambiguity, never world feasibility."}
+  }
+}

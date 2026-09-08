@@ -1,0 +1,91 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "case_1",
+      "input": "我要去 Whispering Woods。",
+      "families": ["travel"],
+      "contains": {"destination": [["Whispering Woods"]]},
+      "null_fields": ["direction", "method", "explicit_goal"]
+    },
+    {
+      "id": "case_2",
+      "input": "我要去森林寻找龙。",
+      "families": ["travel"],
+      "contains": {"destination": [["森林", "forest", "woods"]], "intent": [["寻找", "找", "寻", "search", "find", "seek"], ["龙", "dragon"]]},
+      "null_fields": ["direction", "method", "explicit_goal"]
+    },
+    {
+      "id": "case_3",
+      "input": "我沿着北边海岸探索未知土地。",
+      "families": ["explore"],
+      "contains": {"direction": [["北", "north"], ["海岸", "海边", "coast", "shore"]]},
+      "null_fields": ["destination", "explicit_goal"]
+    },
+    {
+      "id": "case_4",
+      "input": "我在酒馆喝一杯。",
+      "families": ["rest_wait"],
+      "contains": {"action": [["喝", "饮", "drink"]]},
+      "null_fields": ["destination", "direction", "explicit_goal"]
+    },
+    {
+      "id": "case_5",
+      "input": "我要骑我的龙去 Stormcliff。",
+      "families": ["travel"],
+      "contains": {"destination": [["Stormcliff"]], "method": [["骑", "ride", "riding"], ["龙", "dragon"]]},
+      "null_fields": ["direction", "explicit_goal"]
+    },
+    {
+      "id": "case_6",
+      "input": "我要回我在 Skeld 最大的豪宅。",
+      "families": ["travel"],
+      "contains": {"destination": [["Skeld"], ["豪宅", "mansion"]]},
+      "null_fields": ["direction", "method", "explicit_goal"]
+    },
+    {
+      "id": "case_7",
+      "input": "我的目标是找到一枚龙蛋。",
+      "families": ["other"],
+      "goal_operation": "add",
+      "contains": {"explicit_goal.goal": [["龙蛋", "dragon egg"]]},
+      "null_fields": ["destination", "direction"]
+    },
+    {
+      "id": "case_8",
+      "input": "算了，我不找龙蛋了。",
+      "families": ["other"],
+      "goal_operation": "remove",
+      "contains": {"explicit_goal.goal": [["龙蛋", "dragon egg"]]},
+      "null_fields": ["destination", "direction"]
+    },
+    {
+      "id": "case_9",
+      "input": "我要杀掉 Astrid。",
+      "families": ["conflict"],
+      "contains": {"target": [["Astrid"]], "action": [["杀", "kill", "slay"]]},
+      "null_fields": ["destination", "direction", "method", "explicit_goal"]
+    },
+    {
+      "id": "case_10",
+      "input": "我要爬上村里最高的屋顶倒立唱歌。",
+      "families": ["other"],
+      "contains": {"action": [["屋顶", "roof"], ["倒立", "upside down", "handstand"], ["唱", "sing"]]},
+      "null_fields": ["destination", "direction", "explicit_goal"]
+    },
+    {
+      "id": "case_11",
+      "input": "我往北一直走。",
+      "families": ["explore"],
+      "contains": {"direction": [["北", "north"]]},
+      "null_fields": ["destination", "explicit_goal"]
+    },
+    {
+      "id": "case_12",
+      "input": "我在森林深处寻找巨大的脚印。",
+      "families": ["observe_search"],
+      "contains": {"target": [["脚印", "足迹", "footprint", "track"], ["巨", "大", "huge", "large", "giant"]]},
+      "null_fields": ["destination", "method", "explicit_goal"]
+    }
+  ]
+}
