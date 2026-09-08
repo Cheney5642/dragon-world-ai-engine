@@ -1,4 +1,4 @@
-"""Read-only Open Identity Interpreter v0.1.
+"""Read-only Open Identity Interpreter v0.2.
 
 This module extracts a candidate identity from free-form player expression. It
 does not Ground claims, decide World Truth, or write Persistent State.

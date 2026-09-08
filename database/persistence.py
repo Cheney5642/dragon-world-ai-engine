@@ -37,6 +37,10 @@ class IdentityAlreadyInitializedError(PersistenceMappingError):
     """Raised when a different Origin Identity would overwrite an existing one."""
 
 
+class IdentityFacetBackfillConflictError(PersistenceMappingError):
+    """Raised when a Facet backfill would overwrite existing Facets."""
+
+
 _IDENTITY_CONTEXT_UNSET = object()
 
 
@@ -253,6 +257,61 @@ class PostgresPersistenceAdapter:
                 "player_state": _player_state_record(player_state),
             }
 
+    def backfill_identity_facets(
+        self,
+        *,
+        player_id: str,
+        identity_facets: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically add v0.2 Facets to one initialized v0.1 Identity.
+
+        This narrow compatibility operation never reinitializes identity and
+        never changes any existing Identity Context key.
+        """
+
+        normalized_facets = _identity_facets_value(identity_facets)
+        with self._write_session() as session:
+            player_state = session.scalar(
+                select(PlayerState)
+                .where(PlayerState.player_id == player_id)
+                .with_for_update()
+            )
+            if player_state is None:
+                raise PersistenceMappingError(
+                    f"PlayerState does not exist: {player_id}"
+                )
+
+            existing_context = player_state.identity_context
+            if not isinstance(existing_context, Mapping) or (
+                existing_context.get("identity_initialized") is not True
+            ):
+                raise PersistenceMappingError(
+                    "Identity Facets can only backfill an initialized Identity."
+                )
+
+            existing_facets = existing_context.get(
+                "identity_facets",
+                _IDENTITY_CONTEXT_UNSET,
+            )
+            if existing_facets is not _IDENTITY_CONTEXT_UNSET:
+                if _identity_facets_value(existing_facets) == normalized_facets:
+                    return {
+                        "status": "already_applied",
+                        "player_state": _player_state_record(player_state),
+                    }
+                raise IdentityFacetBackfillConflictError(
+                    "identity_facets_already_exist"
+                )
+
+            updated_context = dict(existing_context)
+            updated_context["identity_facets"] = normalized_facets
+            player_state.identity_context = updated_context
+            session.flush()
+            return {
+                "status": "committed",
+                "player_state": _player_state_record(player_state),
+            }
+
     def list_npc_memories(
         self,
         npc_id: str,
@@ -464,6 +523,53 @@ def _identity_context_value(
     if not isinstance(value, Mapping):
         raise PersistenceMappingError("identity_context must be an object or null.")
     return dict(value)
+
+
+def _identity_facets_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {
+        "narrative_species",
+        "occupations",
+    }:
+        raise PersistenceMappingError(
+            "identity_facets must contain only narrative_species and occupations."
+        )
+
+    species = value.get("narrative_species")
+    if species is not None:
+        if not isinstance(species, str) or not species.strip():
+            raise PersistenceMappingError(
+                "identity_facets.narrative_species must be a non-empty string "
+                "or null."
+            )
+        species = species.strip()
+
+    occupations = value.get("occupations")
+    if not isinstance(occupations, list) or not all(
+        isinstance(occupation, str) and occupation.strip()
+        for occupation in occupations
+    ):
+        raise PersistenceMappingError(
+            "identity_facets.occupations must be an array of non-empty strings."
+        )
+    normalized_occupations = [occupation.strip() for occupation in occupations]
+    if len(normalized_occupations) > 3:
+        raise PersistenceMappingError(
+            "identity_facets.occupations must contain at most 3 items."
+        )
+    if len(set(normalized_occupations)) != len(normalized_occupations):
+        raise PersistenceMappingError(
+            "identity_facets.occupations must be unique."
+        )
+    if (species is not None and len(species) > 80) or any(
+        len(occupation) > 80 for occupation in normalized_occupations
+    ):
+        raise PersistenceMappingError(
+            "identity_facets must contain short labels."
+        )
+    return {
+        "narrative_species": species,
+        "occupations": normalized_occupations,
+    }
 
 
 def _npc_memory_record(record: NpcMemory) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-"""Read-only Open Identity composition for Dragon World Runtime v0.1."""
+"""Read-only Open Identity composition for Dragon World Runtime v0.2."""
 
 from __future__ import annotations
 
@@ -27,6 +27,61 @@ def _string_list(
             f"{field} must contain at most {max_items} items."
         )
     return list(value)
+
+
+def _identity_facets(value: Any) -> dict[str, Any]:
+    """Validate persisted v0.2 facets; tolerate an unbackfilled v0.1 context."""
+
+    if value is None:
+        return {"narrative_species": None, "occupations": []}
+    if not isinstance(value, Mapping):
+        raise PlayerIdentityRuntimeError(
+            "identity_context.identity_facets must be an object."
+        )
+    if set(value) != {"narrative_species", "occupations"}:
+        raise PlayerIdentityRuntimeError(
+            "identity_context.identity_facets must contain only "
+            "narrative_species and occupations."
+        )
+
+    narrative_species = value.get("narrative_species")
+    if narrative_species is not None:
+        if not isinstance(narrative_species, str) or not narrative_species.strip():
+            raise PlayerIdentityRuntimeError(
+                "identity_context.identity_facets.narrative_species must be "
+                "a non-empty string or null."
+            )
+        narrative_species = narrative_species.strip()
+
+    occupations = _string_list(
+        value.get("occupations"),
+        "identity_context.identity_facets.occupations",
+        max_items=3,
+    )
+    occupations = [occupation.strip() for occupation in occupations]
+    if len(set(occupations)) != len(occupations):
+        raise PlayerIdentityRuntimeError(
+            "identity_context.identity_facets.occupations must be unique."
+        )
+    if (
+        narrative_species is not None and len(narrative_species) > 80
+    ) or any(len(occupation) > 80 for occupation in occupations):
+        raise PlayerIdentityRuntimeError(
+            "identity_context.identity_facets must contain short labels."
+        )
+    return {
+        "narrative_species": narrative_species,
+        "occupations": occupations,
+    }
+
+
+def _identity_label(facets: Mapping[str, Any]) -> str | None:
+    parts = []
+    species = facets.get("narrative_species")
+    if isinstance(species, str):
+        parts.append(species)
+    parts.extend(facets["occupations"])
+    return " · ".join(parts) if parts else None
 
 
 def build_player_identity_read_model(
@@ -58,6 +113,11 @@ def build_player_identity_read_model(
             "accepted_facts": [],
             "unverified_claims": [],
             "capability_hints": [],
+            "identity_facets": {
+                "narrative_species": None,
+                "occupations": [],
+            },
+            "identity_label": None,
             "identity_summary": None,
         }
     if not isinstance(identity_context, Mapping):
@@ -79,6 +139,11 @@ def build_player_identity_read_model(
             "accepted_facts": [],
             "unverified_claims": [],
             "capability_hints": [],
+            "identity_facets": {
+                "narrative_species": None,
+                "occupations": [],
+            },
+            "identity_label": None,
             "identity_summary": None,
         }
 
@@ -92,6 +157,8 @@ def build_player_identity_read_model(
         raise PlayerIdentityRuntimeError(
             "Initialized Identity has no valid identity_summary."
         )
+
+    facets = _identity_facets(identity_context.get("identity_facets"))
 
     return {
         "player_id": player_id,
@@ -117,6 +184,8 @@ def build_player_identity_read_model(
             "identity_context.capability_hints",
             max_items=8,
         ),
+        "identity_facets": facets,
+        "identity_label": _identity_label(facets),
         "identity_summary": identity_summary,
     }
 

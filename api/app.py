@@ -153,6 +153,7 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
             "goals": player.get("goals", []),
             "inventory": player.get("inventory", []),
             "identity_initialized": identity["identity_initialized"],
+            "identity_label": identity["identity_label"],
             "identity_summary": identity["identity_summary"],
         },
         "world": {

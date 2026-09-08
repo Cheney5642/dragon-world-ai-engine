@@ -1,13 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "identity_grounding.schema.json",
-  "title": "Identity Grounding Result v0.1",
+  "title": "Identity Grounding Result v0.2",
   "description": "Deterministic, read-only classification of candidate identity into accepted facts and unverified claims.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "accepted_facts",
     "unverified_claims",
+    "accepted_identity_facets",
     "accepted_traits",
     "accepted_capability_hints",
     "grounding_notes"
@@ -30,6 +31,35 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "accepted_identity_facets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "narrative_species",
+        "occupations"
+      ],
+      "properties": {
+        "narrative_species": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "occupations": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        }
+      },
+      "description": "Grounding-approved narrative species and occupations safe for identity display."
     },
     "accepted_traits": {
       "type": "array",

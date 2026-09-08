@@ -1,4 +1,4 @@
-"""Deterministic, read-only Identity Grounding v0.1.
+"""Deterministic, read-only Identity Grounding v0.2.
 
 The LLM-backed B1 Interpreter explains what the player expressed. This module
 is the smaller World Truth boundary: it accepts ordinary self-identity
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -142,6 +143,45 @@ _UNSUPPORTED_CAPABILITY_PATTERNS = (
     "超能力",
 )
 
+_UNVERIFIED_IDENTITY_FACET_PATTERNS = _EXTERNAL_FACT_PATTERNS + (
+    # Additional authority and legendary roles that are not ordinary identity.
+    "北境之王",
+    "领主",
+    "救世主",
+    "最伟大的",
+    "龙骑士",
+    "配偶",
+    "lord",
+    "saviour",
+    "savior",
+    "greatest",
+    "dragon rider",
+    "spouse",
+    # Goals, wishes, future intent, and capabilities are not identity facets.
+    "想要",
+    "想成为",
+    "希望",
+    "准备",
+    "计划",
+    "寻找",
+    "找龙",
+    "找一枚",
+    "会剑术",
+    "能够",
+    "want to",
+    "wish to",
+    "hope to",
+    "plan to",
+    "intend to",
+    "will ",
+    "search for",
+    "looking for",
+    "find dragon",
+    "dragon egg",
+    "can ",
+    "able to",
+)
+
 
 def load_identity_grounding_schema(
     path: Path = GROUNDING_SCHEMA_PATH,
@@ -197,6 +237,76 @@ def _unique_strings(values: Any, field: str) -> list[str]:
     return list(dict.fromkeys(value.strip() for value in values))
 
 
+def _candidate_identity_facets(
+    interpretation: Mapping[str, Any],
+) -> tuple[str | None, list[str]]:
+    facets = interpretation.get("candidate_identity_facets")
+    if not isinstance(facets, Mapping):
+        raise IdentityGroundingError(
+            "candidate_identity_facets must be an object."
+        )
+    if set(facets) != {"narrative_species", "occupations"}:
+        raise IdentityGroundingError(
+            "candidate_identity_facets must contain only narrative_species "
+            "and occupations."
+        )
+
+    species = facets.get("narrative_species")
+    if species is not None:
+        if not isinstance(species, str) or not species.strip():
+            raise IdentityGroundingError(
+                "candidate_identity_facets.narrative_species must be a "
+                "non-empty string or null."
+            )
+        species = species.strip()
+        if len(species) > 80:
+            raise IdentityGroundingError(
+                "candidate_identity_facets.narrative_species is too long."
+            )
+
+    occupations = _unique_strings(
+        facets.get("occupations"),
+        "candidate_identity_facets.occupations",
+    )
+    if len(occupations) > 3:
+        raise IdentityGroundingError(
+            "candidate_identity_facets.occupations must contain at most 3 items."
+        )
+    if any(len(occupation) > 80 for occupation in occupations):
+        raise IdentityGroundingError(
+            "candidate_identity_facets occupations must be short labels."
+        )
+    return species, occupations
+
+
+def _claim_already_preserves_facet(
+    facet: str,
+    claims: list[str],
+) -> bool:
+    normalized_facet = _normalized(facet)
+    for claim in claims:
+        normalized_claim = _normalized(claim)
+        if normalized_facet in normalized_claim or normalized_claim in normalized_facet:
+            return True
+        if any(
+            _normalized(pattern) in normalized_facet
+            and _normalized(pattern) in normalized_claim
+            for pattern in _UNVERIFIED_IDENTITY_FACET_PATTERNS
+        ):
+            return True
+    return False
+
+
+def _preserve_rejected_facet(
+    facet: str,
+    unverified_claims: list[str],
+    notes: list[str],
+) -> None:
+    if not _claim_already_preserves_facet(facet, unverified_claims):
+        unverified_claims.append(f"Rejected identity facet (unverified): {facet}")
+    notes.append(f"Identity facet was not accepted without Grounded evidence: {facet}")
+
+
 def ground_identity(
     interpretation: dict[str, Any],
     *,
@@ -217,12 +327,37 @@ def ground_identity(
         interpretation.get("capability_hints"),
         "capability_hints",
     )
+    candidate_species, candidate_occupations = _candidate_identity_facets(
+        interpretation
+    )
 
     accepted_facts: list[str] = []
     unverified_claims: list[str] = list(claims)
     accepted_traits: list[str] = []
     accepted_hints: list[str] = []
+    accepted_species: str | None = None
+    accepted_occupations: list[str] = []
     notes: list[str] = []
+
+    if candidate_species is not None:
+        if _contains_any(candidate_species, _UNVERIFIED_IDENTITY_FACET_PATTERNS):
+            _preserve_rejected_facet(
+                candidate_species,
+                unverified_claims,
+                notes,
+            )
+        else:
+            accepted_species = candidate_species
+
+    for occupation in candidate_occupations:
+        if _contains_any(occupation, _UNVERIFIED_IDENTITY_FACET_PATTERNS):
+            _preserve_rejected_facet(
+                occupation,
+                unverified_claims,
+                notes,
+            )
+        else:
+            accepted_occupations.append(occupation)
 
     for fact in facts:
         if _contains_any(fact, _EXTERNAL_FACT_PATTERNS):
@@ -252,6 +387,7 @@ def ground_identity(
     unverified_claims = list(dict.fromkeys(unverified_claims))
     accepted_traits = list(dict.fromkeys(accepted_traits))
     accepted_hints = list(dict.fromkeys(accepted_hints))
+    accepted_occupations = list(dict.fromkeys(accepted_occupations))
 
     if accepted_facts:
         notes.insert(
@@ -270,6 +406,10 @@ def ground_identity(
     result = {
         "accepted_facts": accepted_facts,
         "unverified_claims": unverified_claims,
+        "accepted_identity_facets": {
+            "narrative_species": accepted_species,
+            "occupations": accepted_occupations,
+        },
         "accepted_traits": accepted_traits,
         "accepted_capability_hints": accepted_hints,
         "grounding_notes": notes,

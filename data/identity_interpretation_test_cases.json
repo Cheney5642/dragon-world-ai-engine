@@ -1,5 +1,5 @@
 {
-  "version": "0.1",
+  "version": "0.2",
   "cases": [
     {
       "id": "case_1",
@@ -40,6 +40,21 @@
       "id": "case_8",
       "input": "帮我随机生成一个角色。",
       "purpose": "explicit AI-generated candidate identity"
+    },
+    {
+      "id": "case_9",
+      "input": "我是普通人类商人，一直想找到一枚龙蛋。",
+      "purpose": "identity facets exclude a Dragon egg wish"
+    },
+    {
+      "id": "case_10",
+      "input": "我是 Skeld 的铁匠，也是整个北境的国王。",
+      "purpose": "ordinary occupation separated from an authority claim"
+    },
+    {
+      "id": "case_11",
+      "input": "我以前是铁匠，现在做商人，偶尔替佣兵团做翻译。",
+      "purpose": "up to three ordered occupations"
     }
   ]
 }

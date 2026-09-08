@@ -188,6 +188,7 @@ class WebApiSmokeTests(unittest.TestCase):
                 "goals",
                 "inventory",
                 "identity_initialized",
+                "identity_label",
                 "identity_summary",
             },
         )

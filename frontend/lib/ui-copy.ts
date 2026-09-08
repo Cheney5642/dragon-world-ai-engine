@@ -153,6 +153,8 @@ export const UI_COPY = {
   player: {
     section: "玩家状态",
     unnamed: "未命名角色",
+    identity: "身份",
+    unknownIdentity: "身份未明",
     species: "种族",
     occupation: "职业",
     currentLocation: "当前位置",

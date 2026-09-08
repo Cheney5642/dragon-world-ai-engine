@@ -578,14 +578,25 @@ export function WorldShell() {
           />
 
           <div className={styles.identityGrid}>
-            <div>
-              <span>{UI_COPY.player.species}</span>
-              <strong>{displayLabel(player.species)}</strong>
-            </div>
-            <div>
-              <span>{UI_COPY.player.occupation}</span>
-              <strong>{displayLabel(player.occupation)}</strong>
-            </div>
+            {player.identity_initialized ? (
+              <div className={styles.wideIdentity}>
+                <span>{UI_COPY.player.identity}</span>
+                <strong>
+                  {player.identity_label ?? UI_COPY.player.unknownIdentity}
+                </strong>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <span>{UI_COPY.player.species}</span>
+                  <strong>{displayLabel(player.species)}</strong>
+                </div>
+                <div>
+                  <span>{UI_COPY.player.occupation}</span>
+                  <strong>{displayLabel(player.occupation)}</strong>
+                </div>
+              </>
+            )}
             <div className={styles.wideIdentity}>
               <span>{UI_COPY.player.currentLocation}</span>
               <strong>{location.name}</strong>

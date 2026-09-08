@@ -17,6 +17,7 @@ export interface Player {
   goals: string[];
   inventory: InventoryEntry[];
   identity_initialized: boolean;
+  identity_label: string | null;
   identity_summary: string;
 }
 

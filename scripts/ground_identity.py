@@ -1,4 +1,4 @@
-"""Offline targeted evaluation for deterministic Identity Grounding v0.1."""
+"""Offline targeted evaluation for deterministic Identity Grounding v0.2."""
 
 from __future__ import annotations
 
@@ -42,9 +42,9 @@ def load_test_cases(case_number: int | None = None) -> list[dict[str, Any]]:
             "Identity Grounding Evaluation data is invalid."
         ) from exc
     cases = document.get("cases") if isinstance(document, dict) else None
-    if not isinstance(cases, list) or len(cases) != 10:
+    if not isinstance(cases, list) or len(cases) != 12:
         raise IdentityGroundingError(
-            "Identity Grounding Evaluation requires exactly 10 cases."
+            "Identity Grounding Evaluation requires exactly 12 cases."
         )
     if case_number is None:
         return cases
@@ -63,6 +63,13 @@ def evaluate_case(case: dict[str, Any], result: dict[str, Any]) -> list[str]:
         failures.append("accepted_facts did not match the expected Grounding")
     if result["unverified_claims"] != expected["unverified_claims"]:
         failures.append("unverified_claims did not match the expected Grounding")
+    if (
+        result["accepted_identity_facets"]
+        != expected["accepted_identity_facets"]
+    ):
+        failures.append(
+            "accepted_identity_facets did not match the expected Grounding"
+        )
     if result["accepted_traits"] != case["interpretation"]["traits"]:
         failures.append("ordinary B1 traits were not preserved")
     if (

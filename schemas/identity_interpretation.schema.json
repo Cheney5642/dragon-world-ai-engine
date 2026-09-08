@@ -1,12 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "identity_interpretation.schema.json",
-  "title": "Open Identity Interpretation v0.1",
+  "title": "Open Identity Interpretation v0.2",
   "description": "Read-only intermediate representation extracted from free-form player identity expression.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "display_name",
+    "candidate_identity_facets",
     "candidate_facts",
     "candidate_claims",
     "traits",
@@ -20,6 +21,37 @@
         "null"
       ],
       "description": "A name only when the player explicitly supplies one."
+    },
+    "candidate_identity_facets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "narrative_species",
+        "occupations"
+      ],
+      "properties": {
+        "narrative_species": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "A short explicitly expressed narrative species label, or null when absent."
+        },
+        "occupations": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "description": "Up to three explicitly expressed current occupations or core identity roles, in semantic input order."
+        }
+      },
+      "description": "Candidate display facets only; Grounding has not yet accepted them as World Truth."
     },
     "candidate_facts": {
       "type": "array",

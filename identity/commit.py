@@ -1,4 +1,4 @@
-"""Controlled, one-time Open Identity commit service v0.1.
+"""Controlled, one-time Open Identity commit service v0.2.
 
 This module does not interpret or Ground identity data. It validates the
 Frozen B1 and B2 contracts, maps only Grounded fields, and delegates one
@@ -102,6 +102,14 @@ def build_identity_context(
         "accepted_facts": list(grounding["accepted_facts"]),
         "unverified_claims": list(grounding["unverified_claims"]),
         "capability_hints": list(grounding["accepted_capability_hints"]),
+        "identity_facets": {
+            "narrative_species": grounding["accepted_identity_facets"][
+                "narrative_species"
+            ],
+            "occupations": list(
+                grounding["accepted_identity_facets"]["occupations"]
+            ),
+        },
         "identity_summary": _build_grounding_safe_summary(
             interpretation,
             grounding,

@@ -1,4 +1,4 @@
-"""CLI and targeted evaluation for Open Identity Interpreter v0.1."""
+"""CLI and targeted evaluation for Open Identity Interpreter v0.2."""
 
 from __future__ import annotations
 
@@ -55,9 +55,9 @@ def load_test_cases(case_number: int | None = None) -> list[dict[str, str]]:
             "Identity Interpretation Evaluation data is invalid."
         ) from exc
     cases = document.get("cases") if isinstance(document, dict) else None
-    if not isinstance(cases, list) or len(cases) != 8:
+    if not isinstance(cases, list) or len(cases) != 11:
         raise IdentityInterpretationError(
-            "Identity Interpretation Evaluation requires exactly 8 cases."
+            "Identity Interpretation Evaluation requires exactly 11 cases."
         )
     if case_number is None:
         return cases
@@ -90,12 +90,42 @@ def evaluate_case(case_id: str, result: dict[str, Any]) -> list[str]:
     facts = _combined(result, "candidate_facts", "identity_summary")
     claims = _combined(result, "candidate_claims")
     hints = _combined(result, "capability_hints")
+    facets = result.get("candidate_identity_facets")
+    species = facets.get("narrative_species") if isinstance(facets, dict) else None
+    occupations = facets.get("occupations") if isinstance(facets, dict) else None
+    facet_text = " ".join(
+        [str(species)] if species is not None else []
+    ) + " " + " ".join(occupations if isinstance(occupations, list) else [])
 
     def require(condition: bool, message: str) -> None:
         if not condition:
             failures.append(message)
 
     require(len(result.get("traits", [])) <= 5, "traits must contain at most 5 items")
+    require(
+        isinstance(facets, dict)
+        and set(facets) == {"narrative_species", "occupations"},
+        "candidate_identity_facets must use the v0.2 contract",
+    )
+    require(
+        isinstance(occupations, list) and len(occupations) <= 3,
+        "identity facets must contain at most 3 occupations",
+    )
+    require(
+        not _contains(
+            facet_text,
+            (
+                "找龙蛋",
+                "找到一枚龙蛋",
+                "寻找龙蛋",
+                "dragon egg",
+                "想成为",
+                "want to",
+                "hope to",
+            ),
+        ),
+        "goals and wishes must not become identity facets",
+    )
     if case_id != "case_8":
         require(
             result.get("display_name") is None,
@@ -111,6 +141,10 @@ def evaluate_case(case_id: str, result: dict[str, Any]) -> list[str]:
         require(_contains(facts, ("渔夫", "fisherman", "fisher")), "fisher identity should be retained")
         require(not claims, "ordinary identity should not become a candidate claim")
         require(
+            _contains(" ".join(occupations), ("渔夫", "fisher")),
+            "fisher must be retained as an occupation facet",
+        )
+        require(
             not _contains(
                 _combined(result, "traits", "capability_hints"),
                 ("勤劳", "hardworking", "comfortable at sea", "small boat"),
@@ -121,6 +155,8 @@ def evaluate_case(case_id: str, result: dict[str, Any]) -> list[str]:
         require(_contains(facts, ("哥布林", "goblin")), "goblin species should be retained")
         require(_contains(facts, ("商人", "merchant", "trader")), "merchant identity should be retained")
         require(not claims, "narrative species should not automatically become a claim")
+        require(_contains(str(species), ("哥布林", "goblin")), "goblin must be a species facet")
+        require(_contains(" ".join(occupations), ("商人", "merchant", "trader")), "merchant must be an occupation facet")
         require(
             not _contains(
                 _combined(result, "traits", "capability_hints"),
@@ -135,18 +171,24 @@ def evaluate_case(case_id: str, result: dict[str, Any]) -> list[str]:
             not _contains(hints, ("fly", "flight", "flying", "fire", "combat", "飞行", "喷火", "战斗")),
             "Dragon identity must not grant automatic gameplay capabilities",
         )
+        require(_contains(str(species), ("年轻", "young")), "young Dragon must remain a species facet")
+        require(_contains(str(species), ("龙", "dragon")), "Dragon must remain a species facet")
+        require(not occupations, "Dragon species alone must not invent an occupation")
     elif case_id == "case_4":
         require(_contains(claims, ("王子", "prince", "royal")), "royal identity must be a candidate claim")
         require(not result.get("traits"), "royal claim must not imply personality traits")
         require(not hints, "royal claim must not create capabilities")
+        require(not species and not occupations, "royal identity must not enter candidate facets")
     elif case_id == "case_5":
         require(_contains(claims, ("Astrid", "深爱", "love")), "NPC relationship must be a candidate claim")
         require(not hints, "NPC relationship claim must not create capabilities")
+        require(not species and not occupations, "NPC relationship must not enter candidate facets")
     elif case_id == "case_6":
         require(_contains(claims, ("Dragon", "龙")), "Dragon control must be a candidate claim")
         require(_contains(claims, ("臣服", "obey", "submit", "control")), "Dragon authority should remain explicit")
         require(not result.get("traits"), "Dragon authority claim must not imply personality traits")
         require(not hints, "Dragon control claim must not create capabilities")
+        require(not species and not occupations, "Dragon control must not enter candidate facets")
     elif case_id == "case_7":
         require(_contains(facts, ("不记得", "失忆", "remember", "memory", "amnesia")), "memory loss should be retained")
         require(not claims, "memory loss should not become an extraordinary claim")
@@ -158,6 +200,27 @@ def evaluate_case(case_id: str, result: dict[str, Any]) -> list[str]:
             "generated identity must carry the exact AI-generated marker",
         )
         require(not claims, "modest generated identity should not add extraordinary claims")
+    elif case_id == "case_9":
+        require(_contains(str(species), ("普通人类", "human")), "ordinary human must be a species facet")
+        require(_contains(" ".join(occupations), ("商人", "merchant")), "merchant must be an occupation facet")
+    elif case_id == "case_10":
+        require(_contains(" ".join(occupations), ("铁匠", "blacksmith")), "blacksmith must be an occupation facet")
+        require(
+            not _contains(facet_text, ("国王", "king", "ruler")),
+            "unverified authority must not enter candidate facets",
+        )
+        require(_contains(claims, ("国王", "king", "ruler")), "authority must remain a candidate claim")
+    elif case_id == "case_11":
+        require(
+            len(occupations) == 3,
+            "the three explicitly described occupations should be retained",
+        )
+        require(
+            _contains(occupations[0], ("铁匠", "blacksmith"))
+            and _contains(occupations[1], ("商人", "merchant"))
+            and _contains(occupations[2], ("翻译", "translator")),
+            "occupation facets must preserve semantic input order",
+        )
     return failures
 
 
