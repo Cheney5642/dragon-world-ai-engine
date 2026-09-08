@@ -110,6 +110,29 @@ def _resolve_destination(
     return matches[0] if len(matches) == 1 else None
 
 
+def _resolve_npc_target(
+    target: str | None,
+    npcs: Mapping[str, Any],
+) -> str | None:
+    """Resolve one authored NPC by exact stable id or display name."""
+
+    if not isinstance(target, str) or not target.strip():
+        return None
+    wanted = _normalized(target)
+    matches: list[str] = []
+    for npc_key, npc in npcs.items():
+        if not isinstance(npc_key, str) or not isinstance(npc, Mapping):
+            return None
+        npc_id = npc.get("id")
+        npc_name = npc.get("name")
+        if not isinstance(npc_id, str) or not isinstance(npc_name, str):
+            return None
+        identifiers = {npc_key, npc_id, npc_name}
+        if wanted in {_normalized(identifier) for identifier in identifiers}:
+            matches.append(npc_id)
+    return matches[0] if len(matches) == 1 else None
+
+
 def _is_location_reachable(
     current_location: str,
     destination_id: str,
@@ -179,6 +202,7 @@ def resolve_action(
     locations: Mapping[str, Any],
     *,
     has_rideable_dragon: bool,
+    npcs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve one Structured Action without writing any state."""
 
@@ -252,9 +276,19 @@ def resolve_action(
     if family == "explore":
         return _result("success", "narrative_only", "open_exploration_recorded")
 
+    known_npc_target = (
+        _resolve_npc_target(structured_action.get("target"), npcs)
+        if isinstance(npcs, Mapping)
+        else None
+    )
+    if family == "interact" and known_npc_target is not None:
+        return _result(
+            "partial", "domain_route", "npc_runtime_required",
+            domain_route="npc",
+        )
+
     if family == "conflict":
-        target = str(structured_action.get("target") or "").casefold()
-        if "astrid" in target or "阿斯特丽德" in target:
+        if known_npc_target is not None:
             return _result(
                 "partial", "domain_route", "npc_runtime_required",
                 domain_route="npc",
@@ -278,13 +312,15 @@ def resolve_current_action(
         raise ActionResolutionError(f"PlayerState does not exist: {player_id}")
     skeleton = dict(world_skeleton or load_world_skeleton())
     locations = skeleton.get("locations")
-    if not isinstance(locations, Mapping):
-        raise ActionResolutionError("World skeleton has no Location registry.")
+    npcs = skeleton.get("npcs", {})
+    if not isinstance(locations, Mapping) or not isinstance(npcs, Mapping):
+        raise ActionResolutionError("World skeleton registry is invalid.")
     return resolve_action(
         structured_action,
         player_state,
         locations,
         has_rideable_dragon=persistence.has_rideable_dragon(player_id),
+        npcs=npcs,
     )
 
 
@@ -306,14 +342,20 @@ def commit_action_resolution(
         raise ActionResolutionError(f"PlayerState does not exist: {player_id}")
     skeleton = dict(world_skeleton or load_world_skeleton())
     locations = skeleton.get("locations")
+    npcs = skeleton.get("npcs", {})
     clock = skeleton.get("world")
-    if not isinstance(locations, Mapping) or not isinstance(clock, Mapping):
+    if (
+        not isinstance(locations, Mapping)
+        or not isinstance(npcs, Mapping)
+        or not isinstance(clock, Mapping)
+    ):
         raise ActionResolutionError("World skeleton is invalid.")
     resolution = resolve_action(
         structured_action,
         player_state,
         locations,
         has_rideable_dragon=persistence.has_rideable_dragon(player_id),
+        npcs=npcs,
     )
     event = {
         "event_id": event_id or f"interaction_event_{uuid.uuid4().hex}",

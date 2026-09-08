@@ -476,6 +476,41 @@ class FreeActionExecuteApiTests(unittest.TestCase):
             "skeld_village",
         )
 
+    def test_case_4_known_npc_actions_use_general_domain_route(self) -> None:
+        for family, verb in (("interact", "对话"), ("conflict", "杀掉")):
+            with self.subTest(family=family):
+                status, payload, provider = self._execute(
+                    f"我要和 Bjorn {verb}。",
+                    {
+                        "action_family": family,
+                        "action": f"{verb} Bjorn",
+                        "target": "Bjorn",
+                        "destination": None,
+                        "direction": None,
+                        "intent": None,
+                        "method": None,
+                        "explicit_goal": None,
+                        "needs_clarification": False,
+                    },
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(provider.calls, ["free_action_interpretation"])
+                self.assertEqual(payload["resolution"]["status"], "partial")
+                self.assertEqual(
+                    payload["resolution"]["effect_scope"], "domain_route"
+                )
+                self.assertEqual(payload["resolution"]["domain_route"], "npc")
+                self.assertEqual(
+                    payload["resolution"]["reason_code"], "npc_runtime_required"
+                )
+                self.assertEqual(payload["resolution"]["state_changes"], {})
+                self.assertEqual(
+                    self.persistence.get_player_state(self.player_id)[
+                        "current_location"
+                    ],
+                    "skeld_village",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

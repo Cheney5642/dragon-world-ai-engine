@@ -19,7 +19,7 @@ import {
 } from "@/lib/ui-copy";
 import type { ActionExecuteResponse } from "@/types/action";
 import type { NpcInteractionResponse } from "@/types/npc";
-import type { InventoryEntry, WorldState } from "@/types/world";
+import type { InventoryEntry, NPC, WorldState } from "@/types/world";
 
 import { WorldOpening } from "./world-opening";
 import styles from "./world-shell.module.css";
@@ -38,6 +38,17 @@ function formatInventoryItem(item: InventoryEntry): string {
 
 function actionErrorMessage(error: unknown, fallback: string): string {
   return error instanceof DragonWorldApiError ? error.message : fallback;
+}
+
+function resolveNearbyNpcTarget(target: string | null, npcs: NPC[]): NPC | null {
+  if (!target?.trim()) return null;
+  const normalizedTarget = target.trim().toLocaleLowerCase();
+  const matches = npcs.filter((npc) =>
+    [npc.id, npc.name].some(
+      (identifier) => identifier.trim().toLocaleLowerCase() === normalizedTarget,
+    ),
+  );
+  return matches.length === 1 ? matches[0] : null;
 }
 
 async function persistNpcMutationsSilently(
@@ -199,6 +210,8 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
 
 export function WorldShell() {
   const actionInFlightRef = useRef(false);
+  const dialoguePanelRef = useRef<HTMLElement>(null);
+  const dialogueInputRef = useRef<HTMLTextAreaElement>(null);
   const [worldState, setWorldState] = useState<WorldState | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -217,6 +230,11 @@ export function WorldShell() {
     useState<NpcInteractionResponse | null>(null);
   const [npcSending, setNpcSending] = useState(false);
   const [npcError, setNpcError] = useState<string | null>(null);
+  const [selectedNpcId, setSelectedNpcId] = useState<string | null>(null);
+
+  const nearbyNpcs = worldState?.nearby_npcs ?? [];
+  const selectedNpc =
+    nearbyNpcs.find((npc) => npc.id === selectedNpcId) ?? nearbyNpcs[0] ?? null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -241,6 +259,25 @@ export function WorldShell() {
     setRetryKey((value) => value + 1);
   }
 
+  function selectNpc(npcId: string, focusDialogue = false) {
+    if (npcSending) return;
+    if (npcId !== selectedNpcId) {
+      setNpcUtterance("");
+      setNpcInteraction(null);
+      setNpcError(null);
+    }
+    setSelectedNpcId(npcId);
+    if (focusDialogue) {
+      window.requestAnimationFrame(() => {
+        dialoguePanelRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        dialogueInputRef.current?.focus();
+      });
+    }
+  }
+
   async function handleActionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input = actionInput.trim();
@@ -263,6 +300,21 @@ export function WorldShell() {
       setWorldLogMessage(result.player_message);
       setActionInput("");
       setConsoleMessage(result.player_message);
+      if (
+        result.structured_action.action_family === "interact" &&
+        result.resolution.domain_route === "npc"
+      ) {
+        const matchedNpc = resolveNearbyNpcTarget(
+          result.structured_action.target,
+          latestWorld.nearby_npcs,
+        );
+        if (matchedNpc) {
+          selectNpc(matchedNpc.id, true);
+          setConsoleMessage(UI_COPY.action.npcReady(matchedNpc.name));
+        } else {
+          setConsoleMessage(UI_COPY.action.npcTargetUnavailable);
+        }
+      }
     } catch (error: unknown) {
       setActionError(
         actionErrorMessage(error, UI_COPY.errors.commitFallback),
@@ -283,7 +335,7 @@ export function WorldShell() {
   async function handleNpcSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const utterance = npcUtterance.trim();
-    if (!utterance || npcSending) return;
+    if (!utterance || npcSending || !selectedNpc) return;
 
     setNpcSending(true);
     setNpcError(null);
@@ -291,7 +343,7 @@ export function WorldShell() {
 
     try {
       const interaction = await interactWithNpc({
-        npc_id: "npc_astrid",
+        npc_id: selectedNpc.id,
         player_id: "player_001",
         utterance,
       });
@@ -317,8 +369,7 @@ export function WorldShell() {
     );
   }
 
-  const { player, world, current_location: location, nearby_npcs: nearbyNpcs } =
-    worldState;
+  const { player, world, current_location: location } = worldState;
   const locationMood =
     LOCATION_MOOD_COPY[location.id] ?? UI_COPY.world.fallbackMood;
   return (
@@ -490,13 +541,22 @@ export function WorldShell() {
             {nearbyNpcs.length ? (
               <div className={styles.npcList}>
                 {nearbyNpcs.map((npc) => (
-                  <article key={npc.id} className={styles.npcCard}>
+                  <button
+                    key={npc.id}
+                    type="button"
+                    className={`${styles.npcCard} ${
+                      selectedNpc?.id === npc.id ? styles.selectedNpcCard : ""
+                    }`}
+                    aria-pressed={selectedNpc?.id === npc.id}
+                    disabled={npcSending}
+                    onClick={() => selectNpc(npc.id, true)}
+                  >
                     <div aria-hidden="true">{npc.name.slice(0, 1)}</div>
-                    <p>
+                    <span className={styles.npcCardCopy}>
                       <strong>{npc.name}</strong>
                       <span>{displayLabel(npc.occupation)}</span>
-                    </p>
-                  </article>
+                    </span>
+                  </button>
                 ))}
               </div>
             ) : (
@@ -545,17 +605,21 @@ export function WorldShell() {
         </aside>
       </div>
 
-      <section className={styles.dialoguePanel}>
+      <section ref={dialoguePanelRef} className={styles.dialoguePanel}>
         <div className={styles.consoleHeading}>
           <span>{UI_COPY.npcDialogue.section}</span>
-          <p>{UI_COPY.npcDialogue.panelHint}</p>
+          <p>
+            {selectedNpc
+              ? UI_COPY.npcDialogue.panelHint(selectedNpc.name)
+              : UI_COPY.npcDialogue.noNpcSelected}
+          </p>
         </div>
 
         <div className={styles.dialogueIdentity}>
-          <div aria-hidden="true">A</div>
+          <div aria-hidden="true">{selectedNpc?.name.slice(0, 1) ?? "—"}</div>
           <p>
             <span>{UI_COPY.npcDialogue.npcName}</span>
-            <strong>Astrid</strong>
+            <strong>{selectedNpc?.name ?? UI_COPY.npcDialogue.noNpcSelected}</strong>
           </p>
         </div>
 
@@ -564,38 +628,39 @@ export function WorldShell() {
           {npcInteraction?.interaction_available === false ? (
             <p className={styles.dialogueUnavailable}>
               {npcInteraction.unavailable_reason ??
-                UI_COPY.npcDialogue.unavailableFallback}
+                UI_COPY.npcDialogue.unavailableFallback(selectedNpc?.name)}
             </p>
           ) : npcInteraction?.npc_response ? (
             <p>{npcInteraction.npc_response.speech}</p>
           ) : npcSending ? (
-            <p>{UI_COPY.npcDialogue.loading}</p>
+            <p>{UI_COPY.npcDialogue.loading(selectedNpc?.name)}</p>
           ) : (
             <p className={styles.dialoguePlaceholder}>
-              {UI_COPY.npcDialogue.emptyResponse}
+              {UI_COPY.npcDialogue.emptyResponse(selectedNpc?.name)}
             </p>
           )}
         </div>
 
         <form onSubmit={handleNpcSubmit}>
           <label htmlFor="npc-dialogue-input">
-            {UI_COPY.npcDialogue.inputLabel}
+            {UI_COPY.npcDialogue.inputLabel(selectedNpc?.name)}
           </label>
           <div className={styles.actionRow}>
             <textarea
+              ref={dialogueInputRef}
               id="npc-dialogue-input"
               value={npcUtterance}
               onChange={(event) => {
                 setNpcUtterance(event.target.value);
                 setNpcError(null);
               }}
-              placeholder={UI_COPY.npcDialogue.placeholder}
+              placeholder={UI_COPY.npcDialogue.placeholder(selectedNpc?.name)}
               rows={2}
-              disabled={npcSending}
+              disabled={npcSending || !selectedNpc}
             />
             <button
               type="submit"
-              disabled={!npcUtterance.trim() || npcSending}
+              disabled={!npcUtterance.trim() || npcSending || !selectedNpc}
             >
               <span>
                 {npcSending

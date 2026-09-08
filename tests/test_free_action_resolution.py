@@ -312,17 +312,59 @@ class FreeActionResolutionTests(unittest.TestCase):
         self.assertEqual(second["player_state"]["goals"], ["探索北境"])
         self._assert_event(second, f"{self.event_prefix}case_7b")
 
-    def test_case_8_astrid_conflict_routes_without_npc_mutation(self) -> None:
+    def test_case_8_known_npc_interactions_route_without_npc_mutation(self) -> None:
+        for suffix, npc_name in (("astrid", "Astrid"), ("bjorn", "Bjorn")):
+            with self.subTest(npc_name=npc_name):
+                result = self._commit(
+                    f"我要和 {npc_name} 对话。",
+                    action("interact", f"与 {npc_name} 对话", target=npc_name),
+                    f"case_8_{suffix}",
+                )
+                self.assertEqual(result["resolution"]["status"], "partial")
+                self.assertEqual(
+                    result["resolution"]["effect_scope"], "domain_route"
+                )
+                self.assertEqual(result["resolution"]["domain_route"], "npc")
+                self.assertEqual(
+                    result["resolution"]["reason_code"], "npc_runtime_required"
+                )
+                self.assertEqual(result["resolution"]["state_changes"], {})
+                self._assert_event(
+                    result, f"{self.event_prefix}case_8_{suffix}"
+                )
+
+    def test_case_8b_known_npc_conflicts_route_without_npc_mutation(self) -> None:
+        for suffix, npc_name in (("astrid", "Astrid"), ("bjorn", "Bjorn")):
+            with self.subTest(npc_name=npc_name):
+                result = self._commit(
+                    f"我要杀掉 {npc_name}。",
+                    action("conflict", f"杀掉 {npc_name}", target=npc_name),
+                    f"case_8b_{suffix}",
+                )
+                self.assertEqual(result["resolution"]["status"], "partial")
+                self.assertEqual(
+                    result["resolution"]["effect_scope"], "domain_route"
+                )
+                self.assertEqual(result["resolution"]["domain_route"], "npc")
+                self.assertEqual(result["resolution"]["state_changes"], {})
+                self._assert_event(
+                    result, f"{self.event_prefix}case_8b_{suffix}"
+                )
+
+    def test_case_8c_unknown_npc_target_fails_closed(self) -> None:
         result = self._commit(
-            "我要杀掉 Astrid。",
-            action("conflict", "杀掉 Astrid", target="Astrid"),
-            "case_8",
+            "我要杀掉 Unknown Stranger。",
+            action("conflict", "杀掉 Unknown Stranger", target="Unknown Stranger"),
+            "case_8c",
         )
         self.assertEqual(result["resolution"]["status"], "partial")
-        self.assertEqual(result["resolution"]["effect_scope"], "domain_route")
-        self.assertEqual(result["resolution"]["domain_route"], "npc")
+        self.assertEqual(result["resolution"]["effect_scope"], "narrative_only")
+        self.assertIsNone(result["resolution"]["domain_route"])
+        self.assertEqual(
+            result["resolution"]["reason_code"], "conflict_runtime_unavailable"
+        )
         self.assertEqual(result["resolution"]["state_changes"], {})
-        self._assert_event(result, f"{self.event_prefix}case_8")
+        self._assert_event(result, f"{self.event_prefix}case_8c")
 
     def test_atomic_failure_rolls_back_player_state(self) -> None:
         duplicate_id = f"{self.event_prefix}atomic"

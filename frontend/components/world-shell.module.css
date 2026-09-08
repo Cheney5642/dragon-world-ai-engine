@@ -333,9 +333,24 @@
 .factList dd { color: var(--text); font-size: 12px; }
 .npcList { display: grid; gap: 8px; }
 
-.npcCard { gap: 10px; padding: 9px; border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.02); }
+.npcCard {
+  width: 100%;
+  gap: 10px;
+  padding: 9px;
+  border: 1px solid var(--line-soft);
+  color: inherit;
+  background: rgba(255, 255, 255, 0.02);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.npcCard:hover:not(:disabled),
+.npcCard:focus-visible { border-color: var(--accent-dim); background: rgba(86, 142, 140, 0.08); outline: none; }
+.npcCard:disabled { cursor: wait; opacity: 0.72; }
+.selectedNpcCard { border-color: var(--accent-bright); background: rgba(86, 142, 140, 0.12); }
 .npcCard > div { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--accent-dim); color: var(--accent-bright); font-size: 11px; }
-.npcCard p { min-width: 0; display: grid; gap: 3px; }
+.npcCardCopy { min-width: 0; display: grid; gap: 3px; }
 .npcCard strong { color: var(--text-strong); font-size: 12px; font-weight: 580; }
 .npcCard span { color: var(--muted); font-size: 10px; }
 
