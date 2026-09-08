@@ -180,17 +180,19 @@ export const UI_COPY = {
   },
   developer: {
     title: "开发者视图",
-    systems: ["动作解释器", "世界校验器", "行动执行器", "持久世界状态"],
+    systems: [
+      "D2-B Action Interpreter",
+      "D2-C Action Resolution",
+      "PostgreSQL Controlled Commit",
+    ],
     connected: "已连接",
-    pipelineStatus: "流水线状态",
-    validationStatus: "校验状态",
-    executionType: "执行类型",
+    resolutionStatus: "Resolution Status",
+    effectScope: "Effect Scope",
+    reasonCode: "Reason Code",
     mutationCount: "世界变化数量",
-    commitStatus: "状态写入",
     idle: "空闲",
     notRun: "尚未运行",
-    notPlanned: "尚未规划",
-    metadataNote: "仅显示经过校验的流水线元数据。",
+    metadataNote: "只显示 /api/action/execute 返回的正式运行时数据。",
   },
   action: {
     section: "自然语言行动",
@@ -252,6 +254,16 @@ export const UI_COPY = {
     confirm: "确认执行",
     committing: "正在执行……",
     cancel: "取消",
+  },
+  actionDeveloper: {
+    title: "Developer View · Formal Action Result",
+    structuredAction: "Structured Action",
+    resolution: "Resolution",
+    worldEffect: "World Effect",
+    persistentMutation: "Persistent Mutation",
+    noPersistentMutation: "No Persistent Mutation",
+    routedToDragon: "Routed to Dragon Domain",
+    routedToNpc: "Routed to NPC Domain",
   },
 } as const;
 
