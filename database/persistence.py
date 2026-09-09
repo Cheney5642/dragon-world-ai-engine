@@ -158,6 +158,52 @@ class PostgresPersistenceAdapter:
         with self._read_session() as session:
             return session.scalar(statement) is not None
 
+    def list_dragons_at_location(
+        self,
+        location_id: str,
+    ) -> list[dict[str, Any]]:
+        """Read committed Dragons at one authored Location without mutation."""
+
+        statement = (
+            select(Dragon)
+            .where(Dragon.current_location == location_id)
+            .order_by(Dragon.dragon_id)
+        )
+        with self._read_session() as session:
+            return [
+                _dragon_record(record)
+                for record in session.scalars(statement).all()
+            ]
+
+    def list_recent_dragon_encounter_decisions(
+        self,
+        player_id: str,
+        *,
+        location_id: str | None = None,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Read the bounded recent D3 decision history without writing it."""
+
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise PersistenceMappingError("Encounter history limit must be positive.")
+        statement = select(InteractionEvent).where(
+            InteractionEvent.player_id == player_id,
+            InteractionEvent.event_type == "dragon_encounter_decision",
+        )
+        if location_id is not None:
+            statement = statement.where(
+                InteractionEvent.location_id == location_id
+            )
+        statement = statement.order_by(
+            InteractionEvent.recorded_at.desc(),
+            InteractionEvent.event_id.desc(),
+        ).limit(limit)
+        with self._read_session() as session:
+            return [
+                _interaction_event_record(record)
+                for record in session.scalars(statement).all()
+            ]
+
     def commit_free_action(
         self,
         *,
@@ -582,6 +628,25 @@ def _npc_record(record: Npc) -> dict[str, Any]:
         "current_activity": record.current_activity,
         "current_goal": record.current_goal,
         "mood": record.mood,
+    }
+
+
+def _dragon_record(record: Dragon) -> dict[str, Any]:
+    return {
+        "dragon_id": record.dragon_id,
+        "archetype_id": record.archetype_id,
+        "name": record.name,
+        "sex": record.sex,
+        "age_stage": record.age_stage,
+        "appearance": dict(record.appearance),
+        "temperament_traits": list(record.temperament_traits),
+        "current_location": record.current_location,
+        "health_state": record.health_state,
+        "energy": record.energy,
+        "hunger": record.hunger,
+        "alertness": record.alertness,
+        "behavior_state": record.behavior_state,
+        "taming_state": record.taming_state,
     }
 
 
