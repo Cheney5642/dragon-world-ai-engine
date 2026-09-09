@@ -1,4 +1,4 @@
-import type { Player } from "@/types/world";
+import type { Dragon, Player } from "@/types/world";
 
 export type FreeActionFamily =
   | "travel"
@@ -55,10 +55,30 @@ export interface ActionExecuteRequest {
   player_input: string;
 }
 
+export type DragonEncounterOutcome =
+  | "none"
+  | "trace"
+  | "sighting"
+  | "direct_encounter";
+
+export interface DragonEncounterResult {
+  outcome: DragonEncounterOutcome;
+  is_final: boolean;
+  requires_new_dragon: boolean;
+  dragon_id: string | null;
+  reason_code: string;
+  context_score: number;
+  roll: number;
+  source: "existing" | "generated" | null;
+  dragon: Dragon | null;
+}
+
 export interface ActionExecuteResponse {
   structured_action: StructuredFreeAction;
   resolution: FreeActionResolution;
   player_message: string;
+  source_event_id: string;
+  dragon_encounter: DragonEncounterResult;
 }
 
 export type ActionKind =

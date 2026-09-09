@@ -41,9 +41,24 @@ export interface NPC {
   occupation: string;
 }
 
+export interface Dragon {
+  dragon_id: string;
+  name: string;
+  appearance: {
+    description?: string;
+    distinctive_features?: string[];
+    ecological_flavor?: string;
+  };
+  personality_traits: string[];
+  behavior_state: string;
+  taming_state: string;
+  location: string;
+}
+
 export interface WorldState {
   player: Player;
   world: WorldInfo;
   current_location: Location;
   nearby_npcs: NPC[];
+  nearby_dragons: Dragon[];
 }

@@ -196,21 +196,78 @@ class PostgresPersistenceAdapter:
             raise PersistenceMappingError("Encounter history limit must be positive.")
         statement = select(InteractionEvent).where(
             InteractionEvent.player_id == player_id,
-            InteractionEvent.event_type == "dragon_encounter_decision",
+            InteractionEvent.event_type == "free_world_action",
+            InteractionEvent.event_payload.op("?")("dragon_encounter_decision"),
         )
         if location_id is not None:
             statement = statement.where(
-                InteractionEvent.location_id == location_id
+                InteractionEvent.event_payload[
+                    "dragon_encounter_location_id"
+                ].astext
+                == location_id
             )
         statement = statement.order_by(
             InteractionEvent.recorded_at.desc(),
             InteractionEvent.event_id.desc(),
         ).limit(limit)
         with self._read_session() as session:
-            return [
-                _interaction_event_record(record)
-                for record in session.scalars(statement).all()
-            ]
+            history: list[dict[str, Any]] = []
+            for record in session.scalars(statement).all():
+                persisted = _interaction_event_record(record)
+                payload = persisted.get("event_payload")
+                if not isinstance(payload, Mapping):
+                    continue
+                decision = payload.get("dragon_encounter_decision")
+                if not isinstance(decision, Mapping):
+                    continue
+                # D3-B consumes only the bounded decision projection. The full
+                # source event remains available through get_interaction_event().
+                persisted["event_payload"] = {
+                    "encounter_decision": dict(decision)
+                }
+                history.append(persisted)
+            return history
+
+    def record_dragon_encounter_decision(
+        self,
+        *,
+        player_id: str,
+        source_interaction_event_id: str,
+        encounter_location_id: str,
+        decision: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Idempotently attach one D3 decision to its D2 source event."""
+
+        if not encounter_location_id:
+            raise PersistenceMappingError("Encounter Location is invalid.")
+        decision_value = _dragon_encounter_decision_value(decision)
+        with self._write_session() as session:
+            source = session.scalar(
+                select(InteractionEvent)
+                .where(InteractionEvent.event_id == source_interaction_event_id)
+                .with_for_update()
+            )
+            _validate_dragon_encounter_source(source, player_id)
+            payload = dict(source.event_payload or {})
+            existing = payload.get("dragon_encounter_decision")
+            existing_location = payload.get("dragon_encounter_location_id")
+            if existing is not None:
+                if not isinstance(existing, Mapping) or dict(existing) != decision_value:
+                    raise PersistenceMappingError(
+                        "Source Interaction Event already has another Dragon decision."
+                    )
+                if existing_location != encounter_location_id:
+                    raise PersistenceMappingError(
+                        "Source Interaction Event has another encounter Location."
+                    )
+                return _interaction_event_record(source)
+
+            payload["dragon_encounter_decision"] = decision_value
+            payload["dragon_encounter_location_id"] = encounter_location_id
+            source.event_payload = payload
+            session.flush()
+            session.refresh(source)
+            return _interaction_event_record(source)
 
     def get_grounded_dragon_encounter_by_source(
         self,
@@ -293,18 +350,7 @@ class PostgresPersistenceAdapter:
                 )
                 .with_for_update()
             )
-            if source is None:
-                raise PersistenceMappingError(
-                    "Source Interaction Event does not exist."
-                )
-            if source.event_type != "free_world_action":
-                raise PersistenceMappingError(
-                    "Dragon encounter source must be a free_world_action event."
-                )
-            if source.player_id != player_id:
-                raise PersistenceMappingError(
-                    "Dragon encounter source belongs to another Player."
-                )
+            _validate_dragon_encounter_source(source, player_id)
             expected_location = source.location_id
             source_payload = source.event_payload
             if isinstance(source_payload, Mapping):
@@ -317,6 +363,74 @@ class PostgresPersistenceAdapter:
                 raise PersistenceMappingError(
                     "Grounded Dragon Location does not match the source action."
                 )
+            source_payload_value = dict(source.event_payload or {})
+            existing_source_decision = source_payload_value.get(
+                "dragon_encounter_decision"
+            )
+            provisional_decision = event_payload.get("provisional_decision")
+            if provisional_decision is None and isinstance(
+                existing_source_decision, Mapping
+            ):
+                provisional_decision = existing_source_decision
+            provisional_value = (
+                _dragon_encounter_decision_value(provisional_decision)
+                if provisional_decision is not None
+                else None
+            )
+            if provisional_value is not None:
+                if (
+                    provisional_value["is_final"] is not False
+                    or provisional_value["requires_new_dragon"] is not True
+                ):
+                    raise PersistenceMappingError(
+                        "Dragon creation requires a provisional encounter decision."
+                    )
+                if existing_source_decision is not None and (
+                    not isinstance(existing_source_decision, Mapping)
+                    or dict(existing_source_decision) != provisional_value
+                ):
+                    existing_value = _dragon_encounter_decision_value(
+                        existing_source_decision
+                    )
+                    if not (
+                        existing_value["is_final"] is True
+                        and existing_value["dragon_id"] == dragon["dragon_id"]
+                        and existing_value["outcome"]
+                        == provisional_value["outcome"]
+                        and existing_value["context_score"]
+                        == provisional_value["context_score"]
+                        and float(existing_value["roll"])
+                        == float(provisional_value["roll"])
+                    ):
+                        raise PersistenceMappingError(
+                            "Source Interaction Event Dragon decision conflicts."
+                        )
+            existing_encounter_location = source_payload_value.get(
+                "dragon_encounter_location_id"
+            )
+            if existing_encounter_location not in {
+                None,
+                dragon["current_location"],
+            }:
+                raise PersistenceMappingError(
+                    "Source Interaction Event encounter Location conflicts."
+                )
+
+            final_decision = None
+            if provisional_value is not None:
+                final_decision = dict(provisional_value)
+                final_decision.update(
+                    {
+                        "is_final": True,
+                        "requires_new_dragon": False,
+                        "dragon_id": dragon["dragon_id"],
+                        "reason_code": (
+                            "new_dragon_committed_for_"
+                            f"{provisional_value['outcome']}"
+                        ),
+                    }
+                )
+                final_decision = _dragon_encounter_decision_value(final_decision)
 
             existing_events = session.scalars(
                 select(DragonEvent)
@@ -343,6 +457,15 @@ class PostgresPersistenceAdapter:
                     raise PersistenceMappingError(
                         "Grounded Dragon Event references a missing Dragon."
                     )
+                if final_decision is not None:
+                    source_payload_value[
+                        "dragon_encounter_decision"
+                    ] = final_decision
+                    source_payload_value[
+                        "dragon_encounter_location_id"
+                    ] = dragon["current_location"]
+                    source.event_payload = source_payload_value
+                session.flush()
                 return {
                     "status": "already_applied",
                     "dragon": _dragon_record(existing_dragon),
@@ -389,6 +512,12 @@ class PostgresPersistenceAdapter:
                 },
             )
             session.add(dragon_event)
+            if final_decision is not None:
+                source_payload_value["dragon_encounter_decision"] = final_decision
+                source_payload_value[
+                    "dragon_encounter_location_id"
+                ] = dragon_record.current_location
+                source.event_payload = source_payload_value
             session.flush()
             session.refresh(dragon_record)
             session.refresh(dragon_event)
@@ -792,6 +921,77 @@ class PostgresPersistenceAdapter:
                 if record is not None
                 else None
             )
+
+
+def _validate_dragon_encounter_source(
+    source: InteractionEvent | None,
+    player_id: str,
+) -> None:
+    if source is None:
+        raise PersistenceMappingError("Source Interaction Event does not exist.")
+    if source.event_type != "free_world_action":
+        raise PersistenceMappingError(
+            "Dragon encounter source must be a free_world_action event."
+        )
+    if source.player_id != player_id:
+        raise PersistenceMappingError(
+            "Dragon encounter source belongs to another Player."
+        )
+
+
+def _dragon_encounter_decision_value(value: Any) -> dict[str, Any]:
+    required = {
+        "outcome",
+        "is_final",
+        "requires_new_dragon",
+        "dragon_id",
+        "reason_code",
+        "context_score",
+        "roll",
+    }
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise PersistenceMappingError("Dragon encounter decision fields are invalid.")
+    outcome = value["outcome"]
+    if outcome not in {"none", "trace", "sighting", "direct_encounter"}:
+        raise PersistenceMappingError("Dragon encounter outcome is invalid.")
+    if not isinstance(value["is_final"], bool) or not isinstance(
+        value["requires_new_dragon"], bool
+    ):
+        raise PersistenceMappingError("Dragon encounter finality is invalid.")
+    dragon_id = value["dragon_id"]
+    if dragon_id is not None and (
+        not isinstance(dragon_id, str) or not dragon_id
+    ):
+        raise PersistenceMappingError("Dragon encounter dragon_id is invalid.")
+    if not isinstance(value["reason_code"], str) or not value["reason_code"]:
+        raise PersistenceMappingError("Dragon encounter reason_code is invalid.")
+    context_score = value["context_score"]
+    if isinstance(context_score, bool) or not isinstance(context_score, int):
+        raise PersistenceMappingError("Dragon encounter context_score is invalid.")
+    roll = value["roll"]
+    if isinstance(roll, bool) or not isinstance(roll, (int, float)):
+        raise PersistenceMappingError("Dragon encounter roll is invalid.")
+    if not 0.0 <= float(roll) <= 1.0:
+        raise PersistenceMappingError("Dragon encounter roll is outside 0..1.")
+    if outcome in {"none", "trace"}:
+        if (
+            value["is_final"] is not True
+            or value["requires_new_dragon"] is not False
+            or dragon_id is not None
+        ):
+            raise PersistenceMappingError(
+                "none/trace encounter decision finality is invalid."
+            )
+    elif value["is_final"] is True:
+        if value["requires_new_dragon"] is not False or dragon_id is None:
+            raise PersistenceMappingError(
+                "Final Dragon encounter must reference a committed Dragon."
+            )
+    elif value["requires_new_dragon"] is not True or dragon_id is not None:
+        raise PersistenceMappingError(
+            "Provisional Dragon encounter must request a new Dragon."
+        )
+    return dict(value)
 
 
 def _required_mapping(

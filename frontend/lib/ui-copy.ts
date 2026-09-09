@@ -176,6 +176,8 @@ export const UI_COPY = {
     location: "位置",
     nearbyNpcs: "附近角色",
     noNearbyNpcs: "附近没有其他角色。",
+    nearbyDragons: "附近的龙",
+    noNearbyDragons: "附近没有已确认出现的龙。",
     dayLabel: (day: number) => `第 ${day} 天`,
   },
   developer: {
@@ -183,6 +185,8 @@ export const UI_COPY = {
     systems: [
       "D2-B Action Interpreter",
       "D2-C Action Resolution",
+      "D3-B Encounter Decision",
+      "D3-C Grounded Dragon Commit",
       "PostgreSQL Controlled Commit",
     ],
     connected: "已连接",
@@ -233,6 +237,15 @@ export const UI_COPY = {
     send: "发送",
     sending: "发送中……",
   },
+  dragonEncounter: {
+    section: "Dragon Encounter",
+    trace: "你发现了龙类活动留下的痕迹，但尚未见到龙。",
+    none: "这次行动没有带来新的龙类遭遇。",
+    seen: "一条真实存在于当前世界的龙进入了你的视野。",
+    personality: "性情",
+    status: "状态",
+    location: "位置",
+  },
   preview: {
     title: "行动流水线预览",
     interpretation: "动作解释",
@@ -266,6 +279,7 @@ export const UI_COPY = {
     structuredAction: "Structured Action",
     resolution: "Resolution",
     worldEffect: "World Effect",
+    dragonEncounter: "Dragon Encounter",
     persistentMutation: "Persistent Mutation",
     noPersistentMutation: "No Persistent Mutation",
     routedToDragon: "Routed to Dragon Domain",

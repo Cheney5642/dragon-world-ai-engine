@@ -20,6 +20,7 @@ PRIMARY_ELIGIBLE_FAMILIES = {"explore", "observe_search"}
 CONDITIONAL_ELIGIBLE_FAMILIES = {"travel", "interact", "other"}
 DIRECT_ENCOUNTER_EXCLUDED_STATES = {"avoiding", "flying"}
 RECENT_HISTORY_LIMIT = 3
+HIGH_LEVEL_ENCOUNTER_OUTCOMES = {"sighting", "direct_encounter"}
 
 _DRAGON_TERMS = (
     "龙",
@@ -218,9 +219,15 @@ def _history_decision(event: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _recent_history_penalty(recent_history: Sequence[Mapping[str, Any]]) -> int:
-    """Penalize only the bounded recent D3 decision window."""
+    """Penalize only committed high-level encounters, never none/trace."""
 
-    return 2 * min(len(recent_history), RECENT_HISTORY_LIMIT)
+    high_level_count = sum(
+        1
+        for event in recent_history
+        if _history_decision(event).get("outcome")
+        in HIGH_LEVEL_ENCOUNTER_OUTCOMES
+    )
+    return 2 * min(high_level_count, RECENT_HISTORY_LIMIT)
 
 
 def _context_score(
@@ -341,9 +348,6 @@ def decide_dragon_encounter(
     location = locations.get(current_location)
     if not isinstance(location, Mapping):
         raise EncounterDecisionError("Current authored Location is not grounded.")
-    if len(recent_history) > RECENT_HISTORY_LIMIT:
-        recent_history = recent_history[:RECENT_HISTORY_LIMIT]
-
     eligible, eligibility_reason = _is_eligible(structured_action, resolution)
     if not eligible:
         return _none(eligibility_reason)

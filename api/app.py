@@ -22,6 +22,10 @@ from core.free_action_resolution import (
     ActionResolutionError,
     commit_action_resolution,
 )
+from core.dragon_encounter_decision import (
+    EncounterDecisionError,
+    decide_current_dragon_encounter,
+)
 from database.connection import (
     DatabaseConfigurationError,
     create_database_engine,
@@ -44,6 +48,10 @@ from identity.runtime_context import (
     PlayerIdentityRuntimeError,
     build_legacy_player_identity_read_model,
     build_player_identity_read_model,
+)
+from dragon.candidate_runtime import (
+    DragonCandidateError,
+    commit_new_dragon_encounter,
 )
 from llm import LLMProviderClient, LLMProviderError
 from npc.interaction_runtime import StructuredOutputProvider
@@ -158,6 +166,12 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    nearby_dragons = []
+    for dragon in world_state.get("nearby_dragons", []):
+        if not isinstance(dragon, dict):
+            continue
+        nearby_dragons.append(_public_dragon_summary(dragon))
+
     return {
         "player": {
             "id": player.get("id"),
@@ -185,6 +199,19 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
             "type": current_location.get("type"),
         },
         "nearby_npcs": nearby_npcs,
+        "nearby_dragons": nearby_dragons,
+    }
+
+
+def _public_dragon_summary(dragon: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "dragon_id": dragon.get("dragon_id"),
+        "name": dragon.get("name"),
+        "appearance": copy.deepcopy(dragon.get("appearance", {})),
+        "personality_traits": list(dragon.get("temperament_traits", [])),
+        "behavior_state": dragon.get("behavior_state"),
+        "taming_state": dragon.get("taming_state"),
+        "location": dragon.get("current_location"),
     }
 
 
@@ -299,6 +326,9 @@ def _load_postgres_world(
             raise interpret_action.ActionInterpretationError(
                 "PostgreSQL Player location does not resolve to World configuration."
             )
+        world_state["nearby_dragons"] = persistence.list_dragons_at_location(
+            runtime_player["current_location"]
+        )
         return world_state
     except interpret_action.NoPlayerError as exc:
         raise HTTPException(
@@ -390,6 +420,11 @@ def _free_action_http_error(exc: Exception) -> HTTPException:
             status_code=409,
             detail="The action could not be resolved against the current world.",
         )
+    if isinstance(exc, (EncounterDecisionError, DragonCandidateError)):
+        return HTTPException(
+            status_code=500,
+            detail="The Dragon encounter could not be grounded.",
+        )
     if isinstance(
         exc,
         (DatabaseConfigurationError, PersistenceMappingError, SQLAlchemyError),
@@ -435,6 +470,22 @@ def _free_action_player_message(resolution: dict[str, Any]) -> str:
     return "行动已经处理。"
 
 
+def _dragon_encounter_player_message(
+    resolution: dict[str, Any],
+    encounter: dict[str, Any],
+) -> str:
+    outcome = encounter["outcome"]
+    dragon = encounter.get("dragon")
+    dragon_name = dragon.get("name") if isinstance(dragon, dict) else None
+    if outcome == "trace":
+        return "你发现了龙类活动留下的痕迹。"
+    if outcome == "sighting" and isinstance(dragon_name, str):
+        return f"你发现了龙：{dragon_name}。"
+    if outcome == "direct_encounter" and isinstance(dragon_name, str):
+        return f"你与龙 {dragon_name} 正面相遇。"
+    return _free_action_player_message(resolution)
+
+
 def create_app(
     save_path: Path | None = None,
     *,
@@ -443,6 +494,8 @@ def create_app(
     npc_provider_client: StructuredOutputProvider | None = None,
     identity_provider_client: LLMProviderClient | None = None,
     action_provider_client: LLMProviderClient | None = None,
+    dragon_provider_client: LLMProviderClient | None = None,
+    dragon_encounter_roll: float | None = None,
     persistence_adapter: PostgresPersistenceAdapter | None = None,
 ) -> FastAPI:
     # Explicit path injection is retained only for existing isolated tests. The
@@ -700,10 +753,64 @@ def create_app(
                 persistence=persistence_adapter,
             )
             resolution = committed["resolution"]
+            source_event_id = committed["interaction_event"]["event_id"]
+            encounter_location_id = committed["player_state"]["current_location"]
+            decision = decide_current_dragon_encounter(
+                player_id=player_id,
+                structured_action=structured_action,
+                resolution=resolution,
+                persistence=persistence_adapter,
+                roll=dragon_encounter_roll,
+            )
+            persistence_adapter.record_dragon_encounter_decision(
+                player_id=player_id,
+                source_interaction_event_id=source_event_id,
+                encounter_location_id=encounter_location_id,
+                decision=decision,
+            )
+
+            encounter_source: str | None = None
+            committed_dragon: dict[str, Any] | None = None
+            final_decision = decision
+            if decision["requires_new_dragon"]:
+                dragon_commit = commit_new_dragon_encounter(
+                    player_id=player_id,
+                    source_interaction_event_id=source_event_id,
+                    provisional_decision=decision,
+                    encounter_location_id=encounter_location_id,
+                    persistence=persistence_adapter,
+                    provider_client=dragon_provider_client,
+                )
+                final_decision = dragon_commit["encounter"]
+                committed_dragon = _public_dragon_summary(
+                    dragon_commit["dragon"]
+                )
+                encounter_source = "generated"
+            elif decision["dragon_id"] is not None:
+                persisted_dragon = persistence_adapter.get_dragon(
+                    decision["dragon_id"]
+                )
+                if persisted_dragon is None:
+                    raise PersistenceMappingError(
+                        "Final Dragon encounter references a missing Dragon."
+                    )
+                committed_dragon = _public_dragon_summary(persisted_dragon)
+                encounter_source = "existing"
+
+            dragon_encounter = {
+                **final_decision,
+                "source": encounter_source,
+                "dragon": committed_dragon,
+            }
             return {
                 "structured_action": structured_action,
                 "resolution": resolution,
-                "player_message": _free_action_player_message(resolution),
+                "player_message": _dragon_encounter_player_message(
+                    resolution,
+                    dragon_encounter,
+                ),
+                "source_event_id": source_event_id,
+                "dragon_encounter": dragon_encounter,
             }
         except HTTPException:
             raise

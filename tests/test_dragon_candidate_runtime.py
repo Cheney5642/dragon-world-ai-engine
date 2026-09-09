@@ -27,6 +27,7 @@ from database.models import (
 from database.persistence import PostgresPersistenceAdapter
 from dragon.candidate_runtime import (
     DragonCandidateError,
+    PROMPT_PATH,
     commit_new_dragon_encounter,
     generate_dragon_candidate,
     ground_dragon_candidate,
@@ -89,6 +90,17 @@ class DragonCandidateOfflineTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.skeleton = load_world_skeleton()
         cls.locations = cls.skeleton["locations"]
+
+    def test_candidate_prompt_requires_simplified_chinese_narrative(self) -> None:
+        prompt = PROMPT_PATH.read_text(encoding="utf-8")
+        self.assertIn("Simplified Chinese", prompt)
+        for field_name in (
+            "appearance.description",
+            "appearance.distinctive_features",
+            "personality_traits",
+            "ecological_flavor",
+        ):
+            self.assertIn(field_name, prompt)
 
     def test_case_1_none_decision_is_rejected_before_candidate(self) -> None:
         invalid = {

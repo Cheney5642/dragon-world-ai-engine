@@ -117,6 +117,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
 function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
   const action = result.structured_action;
   const resolution = result.resolution;
+  const encounter = result.dragon_encounter;
   const hasStateChanges = Object.keys(resolution.state_changes).length > 0;
   const actionFields: Array<[string, string | boolean | null]> = [
     ["action", action.action],
@@ -203,8 +204,70 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
             </p>
           ) : null}
         </article>
+
+        <article className={styles.previewCard}>
+          <span>04 · {UI_COPY.actionDeveloper.dragonEncounter}</span>
+          <h4>{encounter.outcome}</h4>
+          <dl className={styles.developerFacts}>
+            <div>
+              <dt>is_final</dt>
+              <dd>{String(encounter.is_final)}</dd>
+            </div>
+            <div>
+              <dt>dragon_id</dt>
+              <dd>{encounter.dragon_id ?? "null"}</dd>
+            </div>
+            <div>
+              <dt>source</dt>
+              <dd>{encounter.source ?? "null"}</dd>
+            </div>
+            <div>
+              <dt>reason_code</dt>
+              <dd>{encounter.reason_code}</dd>
+            </div>
+          </dl>
+        </article>
       </div>
     </details>
+  );
+}
+
+function DragonEncounterPanel({ result }: { result: ActionExecuteResponse }) {
+  const encounter = result.dragon_encounter;
+  const dragon = encounter.dragon;
+
+  return (
+    <section
+      className={styles.dragonEncounterPanel}
+      data-outcome={encounter.outcome}
+      aria-live="polite"
+    >
+      <span>{UI_COPY.dragonEncounter.section}</span>
+      {dragon ? (
+        <>
+          <h3>{dragon.name}</h3>
+          <p>{dragon.appearance.description ?? UI_COPY.dragonEncounter.seen}</p>
+          <dl className={styles.dragonFacts}>
+            <div>
+              <dt>{UI_COPY.dragonEncounter.personality}</dt>
+              <dd>{dragon.personality_traits.join(" · ")}</dd>
+            </div>
+            <div>
+              <dt>{UI_COPY.dragonEncounter.status}</dt>
+              <dd>{displayLabel(dragon.taming_state)}</dd>
+            </div>
+            <div>
+              <dt>{UI_COPY.dragonEncounter.location}</dt>
+              <dd>{displayLabel(dragon.location)}</dd>
+            </div>
+          </dl>
+        </>
+      ) : encounter.outcome === "trace" ? (
+        <p>{UI_COPY.dragonEncounter.trace}</p>
+      ) : (
+        <p className={styles.encounterQuiet}>{UI_COPY.dragonEncounter.none}</p>
+      )}
+    </section>
   );
 }
 
@@ -566,6 +629,24 @@ export function WorldShell() {
             )}
           </section>
 
+          <section className={styles.nearbySection}>
+            <h3>{UI_COPY.world.nearbyDragons}</h3>
+            {worldState.nearby_dragons.length ? (
+              <div className={styles.dragonList}>
+                {worldState.nearby_dragons.map((dragon) => (
+                  <article className={styles.dragonCard} key={dragon.dragon_id}>
+                    <strong>{dragon.name}</strong>
+                    <span>
+                      {displayLabel(dragon.taming_state)} · {displayLabel(dragon.behavior_state)}
+                    </span>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.emptyState}>{UI_COPY.world.noNearbyDragons}</p>
+            )}
+          </section>
+
           <details className={styles.developerView}>
             <summary>{UI_COPY.developer.title}</summary>
             <ul>
@@ -713,6 +794,7 @@ export function WorldShell() {
             {actionError}
           </p>
         ) : null}
+        {actionResult ? <DragonEncounterPanel result={actionResult} /> : null}
         {actionResult ? <ActionDeveloperView result={actionResult} /> : null}
       </section>
     </main>

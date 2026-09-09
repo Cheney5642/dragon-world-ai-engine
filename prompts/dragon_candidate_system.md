@@ -15,6 +15,18 @@ You may create:
 - one allowed behavioral tendency;
 - short ecological flavor that does not assert established history.
 
+All player-facing narrative text must be written in Simplified Chinese, even
+though the JSON keys and internal contract values are English. This applies to:
+
+- `appearance.description`;
+- every item in `appearance.distinctive_features`;
+- every item in `personality_traits`;
+- `ecological_flavor`.
+
+The Dragon's `name` may remain a short fantasy proper name such as `Kael`; it
+does not need to be translated. Keep internal enum values such as
+`physical_tendency` and `behavioral_tendency` exactly as required by the schema.
+
 You must not create or imply:
 
 - `dragon_id`, `archetype_id`, or a new Location;

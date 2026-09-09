@@ -7,6 +7,7 @@ import unittest
 from typing import Any
 
 from core.dragon_encounter_decision import (
+    _recent_history_penalty,
     decide_current_dragon_encounter,
     decide_dragon_encounter,
 )
@@ -290,6 +291,73 @@ class DragonEncounterDecisionTests(unittest.TestCase):
             for count in range(3)
         ]
         self.assertEqual(outcomes, ["direct_encounter", "sighting", "trace"])
+
+    def test_none_trace_none_history_has_no_penalty(self) -> None:
+        self.assertEqual(
+            _recent_history_penalty(
+                [history("none"), history("trace"), history("none")]
+            ),
+            0,
+        )
+
+    def test_three_trace_decisions_have_no_penalty(self) -> None:
+        self.assertEqual(
+            _recent_history_penalty([history("trace")] * 3),
+            0,
+        )
+
+    def test_sighting_has_two_point_penalty(self) -> None:
+        self.assertEqual(_recent_history_penalty([history("sighting")]), 2)
+
+    def test_direct_encounter_has_two_point_penalty(self) -> None:
+        self.assertEqual(
+            _recent_history_penalty([history("direct_encounter")]),
+            2,
+        )
+
+    def test_mixed_history_penalizes_only_high_level_encounters(self) -> None:
+        self.assertEqual(
+            _recent_history_penalty(
+                [
+                    history("sighting"),
+                    history("trace"),
+                    history("none"),
+                    history("direct_encounter"),
+                ]
+            ),
+            4,
+        )
+
+    def test_high_level_encounter_penalty_still_caps_at_six(self) -> None:
+        self.assertEqual(
+            _recent_history_penalty([history("sighting")] * 5),
+            6,
+        )
+
+    def test_none_trace_history_preserves_first_dragon_discovery_space(self) -> None:
+        structured = action(
+            "observe_search",
+            "深入森林仔细寻找龙",
+            target="龙",
+            intent="寻找龙",
+        )
+        recent_history = [history("none"), history("trace"), history("none")]
+        low = self.decide(
+            structured,
+            current_location="whispering_woods",
+            recent_history=recent_history,
+            roll=0.0,
+        )
+        high = self.decide(
+            structured,
+            current_location="whispering_woods",
+            recent_history=recent_history,
+            roll=0.5,
+        )
+        self.assertEqual(low["context_score"], 8)
+        self.assertEqual(low["outcome"], "trace")
+        self.assertEqual(high["context_score"], 8)
+        self.assertEqual(high["outcome"], "sighting")
 
     def test_case_8_blocked_dragon_ride_is_none(self) -> None:
         result = self.decide(

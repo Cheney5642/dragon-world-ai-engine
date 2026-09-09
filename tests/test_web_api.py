@@ -190,7 +190,13 @@ class WebApiSmokeTests(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertEqual(
             set(payload),
-            {"player", "world", "current_location", "nearby_npcs"},
+            {
+                "player",
+                "world",
+                "current_location",
+                "nearby_npcs",
+                "nearby_dragons",
+            },
         )
         self.assertEqual(
             set(payload["player"]),
@@ -222,8 +228,27 @@ class WebApiSmokeTests(unittest.TestCase):
                 set(npc),
                 {"id", "name", "species", "occupation"},
             )
+        for dragon in payload["nearby_dragons"]:
+            self.assertEqual(
+                set(dragon),
+                {
+                    "dragon_id",
+                    "name",
+                    "appearance",
+                    "personality_traits",
+                    "behavior_state",
+                    "taming_state",
+                    "location",
+                },
+            )
 
-        serialized = json.dumps(payload, ensure_ascii=False).casefold()
+        public_non_dragon_payload = {
+            key: value for key, value in payload.items() if key != "nearby_dragons"
+        }
+        serialized = json.dumps(
+            public_non_dragon_payload,
+            ensure_ascii=False,
+        ).casefold()
         for forbidden in (
             "api_key",
             "system prompt",
