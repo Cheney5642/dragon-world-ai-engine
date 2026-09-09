@@ -1,0 +1,47 @@
+{
+  "version": "0.1",
+  "archetypes": {
+    "agile_wild": {
+      "description": "A small, mobile wild-dragon runtime baseline.",
+      "physical_tendencies": ["small_agile"],
+      "behavioral_tendencies": ["curious", "cautious"],
+      "runtime_defaults": {
+        "age_stage": "juvenile",
+        "health_state": "healthy",
+        "energy": 78,
+        "hunger": 38,
+        "alertness": 76,
+        "behavior_state": "watching",
+        "taming_state": "wild"
+      }
+    },
+    "balanced_wild": {
+      "description": "A medium, adaptable wild-dragon runtime baseline.",
+      "physical_tendencies": ["medium_balanced"],
+      "behavioral_tendencies": ["curious", "cautious", "territorial"],
+      "runtime_defaults": {
+        "age_stage": "young_adult",
+        "health_state": "healthy",
+        "energy": 70,
+        "hunger": 42,
+        "alertness": 68,
+        "behavior_state": "watching",
+        "taming_state": "wild"
+      }
+    },
+    "powerful_wild": {
+      "description": "A large, forceful wild-dragon runtime baseline.",
+      "physical_tendencies": ["large_powerful"],
+      "behavioral_tendencies": ["cautious", "territorial"],
+      "runtime_defaults": {
+        "age_stage": "adult",
+        "health_state": "healthy",
+        "energy": 64,
+        "hunger": 50,
+        "alertness": 72,
+        "behavior_state": "threatening",
+        "taming_state": "wild"
+      }
+    }
+  }
+}

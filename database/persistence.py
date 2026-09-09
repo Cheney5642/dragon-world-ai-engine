@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from database.models import (
     Dragon,
+    DragonEvent,
     InteractionEvent,
     Npc,
     NpcMemory,
@@ -175,6 +176,13 @@ class PostgresPersistenceAdapter:
                 for record in session.scalars(statement).all()
             ]
 
+    def get_dragon(self, dragon_id: str) -> dict[str, Any] | None:
+        """Read one committed Dragon without producing a mutation."""
+
+        with self._read_session() as session:
+            record = session.get(Dragon, dragon_id)
+            return _dragon_record(record) if record is not None else None
+
     def list_recent_dragon_encounter_decisions(
         self,
         player_id: str,
@@ -203,6 +211,192 @@ class PostgresPersistenceAdapter:
                 _interaction_event_record(record)
                 for record in session.scalars(statement).all()
             ]
+
+    def get_grounded_dragon_encounter_by_source(
+        self,
+        *,
+        player_id: str,
+        source_interaction_event_id: str,
+    ) -> dict[str, Any] | None:
+        """Read an already committed first encounter for idempotent retry."""
+
+        statement = (
+            select(DragonEvent)
+            .where(
+                DragonEvent.player_id == player_id,
+                DragonEvent.source_interaction_event_id
+                == source_interaction_event_id,
+                DragonEvent.event_type == "dragon_first_encounter",
+            )
+            .order_by(DragonEvent.event_id)
+            .limit(2)
+        )
+        with self._read_session() as session:
+            events = session.scalars(statement).all()
+            if len(events) > 1:
+                raise PersistenceMappingError(
+                    "Source encounter maps to multiple first Dragon events."
+                )
+            if not events:
+                return None
+            dragon = session.get(Dragon, events[0].dragon_id)
+            if dragon is None:
+                raise PersistenceMappingError(
+                    "Grounded Dragon Event references a missing Dragon."
+                )
+            return {
+                "status": "already_applied",
+                "dragon": _dragon_record(dragon),
+                "dragon_event": _dragon_event_record(events[0]),
+            }
+
+    def commit_grounded_dragon_encounter(
+        self,
+        *,
+        player_id: str,
+        source_interaction_event_id: str,
+        dragon: Mapping[str, Any],
+        dragon_event_id: str,
+        encounter_outcome: str,
+        event_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically insert one Dragon and its grounded first encounter event."""
+
+        dragon_fields = {
+            "dragon_id",
+            "archetype_id",
+            "name",
+            "sex",
+            "age_stage",
+            "appearance",
+            "temperament_traits",
+            "current_location",
+            "health_state",
+            "energy",
+            "hunger",
+            "alertness",
+            "behavior_state",
+            "taming_state",
+        }
+        if set(dragon) != dragon_fields:
+            raise PersistenceMappingError("Grounded Dragon fields are invalid.")
+        if encounter_outcome not in {"sighting", "direct_encounter"}:
+            raise PersistenceMappingError("Grounded encounter outcome is invalid.")
+        if not isinstance(event_payload, Mapping):
+            raise PersistenceMappingError("Dragon Event payload must be an object.")
+
+        with self._write_session() as session:
+            source = session.scalar(
+                select(InteractionEvent)
+                .where(
+                    InteractionEvent.event_id == source_interaction_event_id
+                )
+                .with_for_update()
+            )
+            if source is None:
+                raise PersistenceMappingError(
+                    "Source Interaction Event does not exist."
+                )
+            if source.event_type != "free_world_action":
+                raise PersistenceMappingError(
+                    "Dragon encounter source must be a free_world_action event."
+                )
+            if source.player_id != player_id:
+                raise PersistenceMappingError(
+                    "Dragon encounter source belongs to another Player."
+                )
+            expected_location = source.location_id
+            source_payload = source.event_payload
+            if isinstance(source_payload, Mapping):
+                world_effect = source_payload.get("world_effect")
+                if isinstance(world_effect, Mapping) and isinstance(
+                    world_effect.get("current_location"), str
+                ):
+                    expected_location = world_effect["current_location"]
+            if dragon["current_location"] != expected_location:
+                raise PersistenceMappingError(
+                    "Grounded Dragon Location does not match the source action."
+                )
+
+            existing_events = session.scalars(
+                select(DragonEvent)
+                .where(
+                    DragonEvent.source_interaction_event_id
+                    == source_interaction_event_id,
+                    DragonEvent.event_type == "dragon_first_encounter",
+                )
+                .order_by(DragonEvent.event_id)
+                .limit(2)
+            ).all()
+            if len(existing_events) > 1:
+                raise PersistenceMappingError(
+                    "Source encounter maps to multiple first Dragon events."
+                )
+            if existing_events:
+                existing_event = existing_events[0]
+                if existing_event.player_id != player_id:
+                    raise PersistenceMappingError(
+                        "Existing source encounter belongs to another Player."
+                    )
+                existing_dragon = session.get(Dragon, existing_event.dragon_id)
+                if existing_dragon is None:
+                    raise PersistenceMappingError(
+                        "Grounded Dragon Event references a missing Dragon."
+                    )
+                return {
+                    "status": "already_applied",
+                    "dragon": _dragon_record(existing_dragon),
+                    "dragon_event": _dragon_event_record(existing_event),
+                }
+
+            if session.get(Dragon, dragon["dragon_id"]) is not None:
+                raise PersistenceMappingError(
+                    "Deterministic Dragon ID already exists without its source event."
+                )
+
+            dragon_record = Dragon(
+                dragon_id=dragon["dragon_id"],
+                archetype_id=dragon["archetype_id"],
+                name=dragon["name"],
+                sex=dragon["sex"],
+                age_stage=dragon["age_stage"],
+                appearance=dict(dragon["appearance"]),
+                temperament_traits=list(dragon["temperament_traits"]),
+                current_location=dragon["current_location"],
+                health_state=dragon["health_state"],
+                energy=dragon["energy"],
+                hunger=dragon["hunger"],
+                alertness=dragon["alertness"],
+                behavior_state=dragon["behavior_state"],
+                taming_state=dragon["taming_state"],
+            )
+            session.add(dragon_record)
+            session.flush()
+
+            dragon_event = DragonEvent(
+                event_id=dragon_event_id,
+                event_type="dragon_first_encounter",
+                dragon_id=dragon_record.dragon_id,
+                player_id=player_id,
+                source_interaction_event_id=source_interaction_event_id,
+                world_day=source.world_day,
+                world_hour=source.world_hour,
+                location_id=dragon_record.current_location,
+                milestone_key="first_encounter",
+                event_payload={
+                    **dict(event_payload),
+                    "encounter_outcome": encounter_outcome,
+                },
+            )
+            session.add(dragon_event)
+            session.flush()
+            session.refresh(dragon_record)
+            session.refresh(dragon_event)
+            return {
+                "status": "committed",
+                "dragon": _dragon_record(dragon_record),
+                "dragon_event": _dragon_event_record(dragon_event),
+            }
 
     def commit_free_action(
         self,
@@ -647,6 +841,22 @@ def _dragon_record(record: Dragon) -> dict[str, Any]:
         "alertness": record.alertness,
         "behavior_state": record.behavior_state,
         "taming_state": record.taming_state,
+    }
+
+
+def _dragon_event_record(record: DragonEvent) -> dict[str, Any]:
+    return {
+        "event_id": record.event_id,
+        "event_type": record.event_type,
+        "dragon_id": record.dragon_id,
+        "player_id": record.player_id,
+        "source_interaction_event_id": record.source_interaction_event_id,
+        "world_day": record.world_day,
+        "world_hour": record.world_hour,
+        "location_id": record.location_id,
+        "milestone_key": record.milestone_key,
+        "event_payload": dict(record.event_payload),
+        "recorded_at": record.recorded_at.isoformat(),
     }
 
 

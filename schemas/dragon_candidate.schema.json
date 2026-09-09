@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dragon_candidate.schema.json",
+  "title": "D3-C Dragon Candidate v0.1",
+  "description": "Creative candidate data only. It has no Dragon identity, location, ownership, bond, taming, riding, or World Truth authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "appearance",
+    "personality_traits",
+    "physical_tendency",
+    "behavioral_tendency",
+    "ecological_flavor"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "distinctive_features"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "distinctive_features": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        }
+      }
+    },
+    "personality_traits": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    },
+    "physical_tendency": {
+      "type": "string",
+      "enum": ["small_agile", "medium_balanced", "large_powerful"]
+    },
+    "behavioral_tendency": {
+      "type": "string",
+      "enum": ["curious", "cautious", "territorial"]
+    },
+    "ecological_flavor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    }
+  }
+}
