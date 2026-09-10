@@ -239,6 +239,7 @@ class WebApiSmokeTests(unittest.TestCase):
                     "behavior_state",
                     "taming_state",
                     "location",
+                    "player_relationship",
                 },
             )
 
@@ -276,12 +277,14 @@ class WebApiSmokeTests(unittest.TestCase):
         raw_input = "Go to the connected location."
         resources, target_id = movement_resources(world_state, raw_input)
         before = file_hash()
+        fixture_app = create_app(SAVE_PATH)
         with patch("api.app._load_resources", return_value=resources):
             status, payload = asyncio.run(
                 asgi_request(
                     "/api/action/preview",
                     method="POST",
                     body={"input": raw_input},
+                    application=fixture_app,
                 )
             )
 

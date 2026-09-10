@@ -19,7 +19,7 @@ import {
 } from "@/lib/ui-copy";
 import type { ActionExecuteResponse } from "@/types/action";
 import type { NpcInteractionResponse } from "@/types/npc";
-import type { InventoryEntry, NPC, WorldState } from "@/types/world";
+import type { Dragon, InventoryEntry, NPC, WorldState } from "@/types/world";
 
 import { WorldOpening } from "./world-opening";
 import styles from "./world-shell.module.css";
@@ -49,6 +49,33 @@ function resolveNearbyNpcTarget(target: string | null, npcs: NPC[]): NPC | null 
     ),
   );
   return matches.length === 1 ? matches[0] : null;
+}
+
+function dragonRelationshipSummary(dragon: Dragon): string {
+  if (dragon.taming_state === "tamed") return UI_COPY.dragonInteraction.tamed;
+  const relationship = dragon.player_relationship;
+  if (!relationship) return UI_COPY.dragonInteraction.stranger;
+  if (relationship.bond >= 2) return UI_COPY.dragonInteraction.bonding;
+  if (relationship.trust >= 2) return UI_COPY.dragonInteraction.trusting;
+  if (relationship.familiarity >= 1) return UI_COPY.dragonInteraction.familiar;
+  return UI_COPY.dragonInteraction.stranger;
+}
+
+function relationshipDeltaSummary(result: ActionExecuteResponse): string {
+  const deltas = result.dragon_interaction?.applied_deltas;
+  if (!deltas) return UI_COPY.dragonInteraction.noRelationshipChange;
+  const labels: Array<[keyof typeof deltas, string]> = [
+    ["familiarity", UI_COPY.dragonInteraction.familiarity],
+    ["trust", UI_COPY.dragonInteraction.trust],
+    ["fear", UI_COPY.dragonInteraction.fear],
+    ["bond", UI_COPY.dragonInteraction.bond],
+  ];
+  const changes = labels
+    .filter(([field]) => deltas[field] !== 0)
+    .map(([field, label]) => `${label} ${deltas[field] > 0 ? "+" : ""}${deltas[field]}`);
+  return changes.length
+    ? changes.join(" · ")
+    : UI_COPY.dragonInteraction.noRelationshipChange;
 }
 
 async function persistNpcMutationsSilently(
@@ -118,6 +145,7 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
   const action = result.structured_action;
   const resolution = result.resolution;
   const encounter = result.dragon_encounter;
+  const interaction = result.dragon_interaction;
   const hasStateChanges = Object.keys(resolution.state_changes).length > 0;
   const actionFields: Array<[string, string | boolean | null]> = [
     ["action", action.action],
@@ -227,6 +255,71 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
             </div>
           </dl>
         </article>
+
+        {interaction ? (
+          <article className={styles.previewCard}>
+            <span>05 · {UI_COPY.actionDeveloper.dragonInteraction}</span>
+            <h4>{interaction.interaction_type ?? interaction.status}</h4>
+            <dl className={styles.developerFacts}>
+              <div>
+                <dt>dragon_id</dt>
+                <dd>{interaction.dragon_id ?? "null"}</dd>
+              </div>
+              <div>
+                <dt>resolution_status</dt>
+                <dd>{interaction.resolution_status}</dd>
+              </div>
+              <div>
+                <dt>dragon_reaction</dt>
+                <dd>{interaction.dragon_reaction ?? "null"}</dd>
+              </div>
+              <div>
+                <dt>relationship_effect</dt>
+                <dd>{interaction.relationship_effect}</dd>
+              </div>
+              <div>
+                <dt>reason_code</dt>
+                <dd>{interaction.reason_code ?? "null"}</dd>
+              </div>
+              <div>
+                <dt>positive_category</dt>
+                <dd>{interaction.positive_category ?? "null"}</dd>
+              </div>
+              <div>
+                <dt>anti_farming</dt>
+                <dd>{interaction.anti_farming}</dd>
+              </div>
+              <div>
+                <dt>applied_deltas</dt>
+                <dd>{JSON.stringify(interaction.applied_deltas)}</dd>
+              </div>
+              <div>
+                <dt>before</dt>
+                <dd>{interaction.before ? JSON.stringify(interaction.before) : "null"}</dd>
+              </div>
+              <div>
+                <dt>after</dt>
+                <dd>{interaction.after ? JSON.stringify(interaction.after) : "null"}</dd>
+              </div>
+              <div>
+                <dt>taming_transition</dt>
+                <dd>
+                  {interaction.taming_transition
+                    ? `${interaction.taming_transition.from} → ${interaction.taming_transition.to}`
+                    : "null"}
+                </dd>
+              </div>
+              <div>
+                <dt>taming_state</dt>
+                <dd>{interaction.taming_state ?? "null"}</dd>
+              </div>
+              <div>
+                <dt>riding_unlocked</dt>
+                <dd>{String(interaction.bond_state?.riding_unlocked ?? false)}</dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
       </div>
     </details>
   );
@@ -267,6 +360,36 @@ function DragonEncounterPanel({ result }: { result: ActionExecuteResponse }) {
       ) : (
         <p className={styles.encounterQuiet}>{UI_COPY.dragonEncounter.none}</p>
       )}
+    </section>
+  );
+}
+
+function DragonInteractionPanel({ result }: { result: ActionExecuteResponse }) {
+  const interaction = result.dragon_interaction;
+  if (!interaction) return null;
+
+  return (
+    <section className={styles.dragonInteractionPanel} aria-live="polite">
+      <span>{UI_COPY.dragonInteraction.section}</span>
+      <h3>{interaction.dragon_name ?? UI_COPY.dragonInteraction.unknownDragon}</h3>
+      <p className={styles.dragonInteractionAction}>
+        {result.structured_action.action}
+      </p>
+      <p>{interaction.player_message}</p>
+      <dl className={styles.dragonFacts}>
+        <div>
+          <dt>{UI_COPY.dragonInteraction.relationshipChange}</dt>
+          <dd>{relationshipDeltaSummary(result)}</dd>
+        </div>
+        <div>
+          <dt>{UI_COPY.dragonInteraction.reaction}</dt>
+          <dd>{displayLabel(interaction.dragon_reaction)}</dd>
+        </div>
+        <div>
+          <dt>{UI_COPY.dragonInteraction.status}</dt>
+          <dd>{displayLabel(interaction.taming_state)}</dd>
+        </div>
+      </dl>
     </section>
   );
 }
@@ -637,7 +760,7 @@ export function WorldShell() {
                   <article className={styles.dragonCard} key={dragon.dragon_id}>
                     <strong>{dragon.name}</strong>
                     <span>
-                      {displayLabel(dragon.taming_state)} · {displayLabel(dragon.behavior_state)}
+                      {displayLabel(dragon.taming_state)} · {dragonRelationshipSummary(dragon)}
                     </span>
                   </article>
                 ))}
@@ -794,7 +917,11 @@ export function WorldShell() {
             {actionError}
           </p>
         ) : null}
-        {actionResult ? <DragonEncounterPanel result={actionResult} /> : null}
+        {actionResult?.dragon_interaction ? (
+          <DragonInteractionPanel result={actionResult} />
+        ) : actionResult ? (
+          <DragonEncounterPanel result={actionResult} />
+        ) : null}
         {actionResult ? <ActionDeveloperView result={actionResult} /> : null}
       </section>
     </main>

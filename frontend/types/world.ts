@@ -53,6 +53,15 @@ export interface Dragon {
   behavior_state: string;
   taming_state: string;
   location: string;
+  player_relationship: DragonRelationship | null;
+}
+
+export interface DragonRelationship {
+  familiarity: number;
+  trust: number;
+  fear: number;
+  bond: number;
+  riding_unlocked: boolean;
 }
 
 export interface WorldState {

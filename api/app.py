@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -212,6 +213,9 @@ def _public_dragon_summary(dragon: dict[str, Any]) -> dict[str, Any]:
         "behavior_state": dragon.get("behavior_state"),
         "taming_state": dragon.get("taming_state"),
         "location": dragon.get("current_location"),
+        "player_relationship": copy.deepcopy(
+            dragon.get("player_relationship")
+        ),
     }
 
 
@@ -326,9 +330,15 @@ def _load_postgres_world(
             raise interpret_action.ActionInterpretationError(
                 "PostgreSQL Player location does not resolve to World configuration."
             )
-        world_state["nearby_dragons"] = persistence.list_dragons_at_location(
+        nearby_dragons = persistence.list_dragons_at_location(
             runtime_player["current_location"]
         )
+        for dragon in nearby_dragons:
+            dragon["player_relationship"] = persistence.get_player_dragon_bond(
+                player_id=player_id,
+                dragon_id=dragon["dragon_id"],
+            )
+        world_state["nearby_dragons"] = nearby_dragons
         return world_state
     except interpret_action.NoPlayerError as exc:
         raise HTTPException(
@@ -484,6 +494,272 @@ def _dragon_encounter_player_message(
     if outcome == "direct_encounter" and isinstance(dragon_name, str):
         return f"你与龙 {dragon_name} 正面相遇。"
     return _free_action_player_message(resolution)
+
+
+_DRAGON_INTERACTION_MARKERS = (
+    "观察",
+    "注视",
+    "看看",
+    "靠近",
+    "接近",
+    "走向",
+    "后退",
+    "退后",
+    "拉开距离",
+    "说话",
+    "交流",
+    "交谈",
+    "安抚",
+    "喂",
+    "食物",
+    "触碰",
+    "触摸",
+    "摸",
+    "抱",
+    "威胁",
+    "恐吓",
+    "攻击",
+    "杀",
+    "骑",
+    "observe",
+    "watch",
+    "approach",
+    "retreat",
+    "step back",
+    "speak",
+    "talk",
+    "soothe",
+    "feed",
+    "food",
+    "touch",
+    "pet",
+    "hug",
+    "threat",
+    "attack",
+    "kill",
+    "ride",
+    "mount",
+)
+_DRAGON_REFERENCE_MARKERS = ("龙", "dragon")
+_GENERIC_DRAGON_TARGETS = {
+    "龙",
+    "那条龙",
+    "这条龙",
+    "它",
+    "dragon",
+    "the dragon",
+    "it",
+}
+_IMPLICIT_UNIQUE_DRAGON_MARKERS = (
+    "后退",
+    "退后",
+    "拉开距离",
+    "retreat",
+    "step back",
+)
+
+
+def _structured_action_text(structured_action: Mapping[str, Any]) -> str:
+    return " ".join(
+        str(structured_action.get(field) or "").strip().casefold()
+        for field in ("action", "target", "intent", "method")
+    )
+
+
+def _ground_dragon_interaction_target(
+    *,
+    structured_action: Mapping[str, Any],
+    resolution: Mapping[str, Any],
+    player_location: str,
+    persistence: PostgresPersistenceAdapter,
+) -> dict[str, Any] | None:
+    """Ground one explicit D4 action to committed Dragon truth, or fail closed."""
+
+    if structured_action.get("explicit_goal") is not None:
+        return None
+    if resolution.get("domain_route") == "npc":
+        return None
+
+    text = _structured_action_text(structured_action)
+    if not any(marker in text for marker in _DRAGON_INTERACTION_MARKERS):
+        return None
+    family = structured_action.get("action_family")
+    is_ride = any(marker in text for marker in ("骑", "ride", "mount"))
+    if family == "travel" and not is_ride:
+        return None
+
+    target = structured_action.get("target")
+    target_text = target.strip() if isinstance(target, str) else ""
+    target_key = target_text.casefold()
+    nearby = persistence.list_dragons_at_location(player_location)
+
+    committed_by_id = (
+        persistence.get_dragon(target_text) if target_text else None
+    )
+    nearby_matches = [
+        dragon
+        for dragon in nearby
+        if target_key
+        and target_key
+        in {
+            str(dragon.get("dragon_id") or "").casefold(),
+            str(dragon.get("name") or "").casefold(),
+        }
+    ]
+    if committed_by_id is not None:
+        return {"dragon": committed_by_id, "reason_code": None}
+    if len(nearby_matches) == 1:
+        return {"dragon": nearby_matches[0], "reason_code": None}
+
+    generic_target = target_key in _GENERIC_DRAGON_TARGETS
+    references_dragon = any(marker in text for marker in _DRAGON_REFERENCE_MARKERS)
+    implicit_unique = not target_text and any(
+        marker in text for marker in _IMPLICIT_UNIQUE_DRAGON_MARKERS
+    )
+    routed_to_dragon = resolution.get("domain_route") == "dragon"
+    is_d4_candidate = (
+        generic_target
+        or references_dragon
+        or routed_to_dragon
+        or implicit_unique
+    )
+    if not is_d4_candidate:
+        return None
+    if (generic_target or implicit_unique) and len(nearby) == 1:
+        # D4-C accepts generic grounding only when D2 already routed the action
+        # to Dragon Runtime. Other pronouns remain fail-closed at this boundary.
+        if routed_to_dragon:
+            return {"dragon": nearby[0], "reason_code": None}
+        return {"dragon": None, "reason_code": "dragon_target_needs_clarification"}
+    if (generic_target or implicit_unique) and len(nearby) > 1:
+        return {"dragon": None, "reason_code": "dragon_target_ambiguous"}
+    return {"dragon": None, "reason_code": "dragon_target_not_grounded"}
+
+
+def _dragon_interaction_player_message(
+    dragon_name: str | None,
+    interaction: Mapping[str, Any],
+) -> str:
+    name = dragon_name or "这条龙"
+    transition = interaction.get("taming_transition")
+    if isinstance(transition, Mapping):
+        destination = transition.get("to")
+        if destination == "tolerant":
+            return f"{name} 开始容忍你的靠近。"
+        if destination == "bonding":
+            return f"{name} 开始真正信任你的存在。"
+        if destination == "tamed":
+            return f"{name} 已经接受了你。"
+    if interaction.get("anti_farming") == "zero":
+        return f"{name} 对你重复的举动已经没有新的反应。"
+
+    reason = interaction.get("reason_code")
+    messages = {
+        "dragon_target_not_grounded": "没有找到这次行动明确指向的正式 Dragon。",
+        "dragon_target_ambiguous": "附近有不止一条 Dragon，请明确说出名字。",
+        "dragon_target_needs_clarification": "请明确说出你想互动的 Dragon 名字。",
+        "dragon_not_in_interaction_range": f"{name} 当前不在你身边。",
+        "dragon_observed": f"{name} 仍保持警惕，安静地观察着你。",
+        "patient_wait": f"你停下来耐心等待，{name} 仍在观察你。",
+        "boundary_respected": f"你主动拉开距离。{name} 的戒备似乎稍稍缓和。",
+        "cautious_approach": f"{name} 注意到了你的靠近，没有立即离开，但仍保持戒备。",
+        "calm_communication_acknowledged": f"你平静地向 {name} 说话。它没有回应，但开始认真观察你。",
+        "grounded_food_offer_accepted": f"{name} 接受了你放下的食物。",
+        "offered_food_not_grounded": "你现在没有可供 Dragon 接受的明确食物。",
+        "dragon_rejects_food_while_hostile": f"{name} 仍处于敌意中，没有接受食物。",
+        "dragon_touch_not_grounded": f"{name} 还没有允许你靠得这么近。",
+        "dragon_allows_touch_preview": f"{name} 接受了你的触碰。",
+        "dragon_reacts_defensively": f"你的举动让 {name} 明显警觉起来。",
+        "reckless_approach_rejected": f"{name} 拒绝了你鲁莽的靠近。",
+        "dragon_not_tamed": f"{name} 还没有接受你的骑乘。",
+        "dragon_riding_not_unlocked": f"{name} 已接受你，但还没有准备好让你骑乘。",
+        "dragon_riding_runtime_required": f"{name} 已允许靠近，但骑乘仍需由 Riding Runtime 处理。",
+        "dragon_interaction_needs_clarification": "这次 Dragon 互动还需要更明确的描述。",
+        "dragon_interaction_not_resolved": f"{name} 注意到了你的行动，但世界尚不能进一步确定结果。",
+    }
+    return messages.get(str(reason), f"{name} 对你的行动作出了回应。")
+
+
+def _no_dragon_encounter_for_interaction() -> dict[str, Any]:
+    return {
+        "outcome": "none",
+        "is_final": True,
+        "requires_new_dragon": False,
+        "dragon_id": None,
+        "reason_code": "dragon_interaction_handled",
+        "context_score": 0,
+        "roll": 0.0,
+        "source": None,
+        "dragon": None,
+    }
+
+
+def _blocked_dragon_interaction(reason_code: str) -> dict[str, Any]:
+    interaction = {
+        "status": "blocked",
+        "resolution_status": "blocked",
+        "dragon_id": None,
+        "dragon_name": None,
+        "interaction_type": None,
+        "dragon_reaction": None,
+        "relationship_effect": "neutral",
+        "reason_code": reason_code,
+        "positive_category": None,
+        "anti_farming": "not_applicable",
+        "applied_deltas": {
+            "familiarity": 0,
+            "trust": 0,
+            "fear": 0,
+            "bond": 0,
+        },
+        "bond_state": None,
+        "before": None,
+        "after": None,
+        "taming_state": None,
+        "taming_transition": None,
+    }
+    interaction["player_message"] = _dragon_interaction_player_message(
+        None,
+        interaction,
+    )
+    return interaction
+
+
+def _committed_dragon_interaction_response(
+    *,
+    dragon: Mapping[str, Any],
+    commit_result: Mapping[str, Any],
+    formal_result: Mapping[str, Any],
+) -> dict[str, Any]:
+    formal_status = formal_result.get("status")
+    public_status = (
+        formal_status
+        if formal_status in {"blocked", "needs_clarification"}
+        else commit_result.get("status")
+    )
+    interaction = {
+        "status": public_status,
+        "resolution_status": formal_status,
+        "dragon_id": commit_result.get("dragon_id"),
+        "dragon_name": dragon.get("name"),
+        "interaction_type": formal_result.get("interaction_type"),
+        "dragon_reaction": formal_result.get("dragon_reaction"),
+        "relationship_effect": formal_result.get("relationship_effect"),
+        "reason_code": formal_result.get("reason_code"),
+        "positive_category": formal_result.get("positive_category"),
+        "anti_farming": formal_result.get("anti_farming"),
+        "applied_deltas": copy.deepcopy(commit_result.get("applied_deltas", {})),
+        "bond_state": copy.deepcopy(commit_result.get("bond_state")),
+        "before": copy.deepcopy(formal_result.get("before")),
+        "after": copy.deepcopy(formal_result.get("after")),
+        "taming_state": commit_result.get("taming_state"),
+        "taming_transition": copy.deepcopy(commit_result.get("taming_transition")),
+    }
+    interaction["player_message"] = _dragon_interaction_player_message(
+        str(dragon.get("name") or "") or None,
+        interaction,
+    )
+    return interaction
 
 
 def create_app(
@@ -755,6 +1031,56 @@ def create_app(
             resolution = committed["resolution"]
             source_event_id = committed["interaction_event"]["event_id"]
             encounter_location_id = committed["player_state"]["current_location"]
+
+            dragon_target = _ground_dragon_interaction_target(
+                structured_action=structured_action,
+                resolution=resolution,
+                player_location=encounter_location_id,
+                persistence=persistence_adapter,
+            )
+            if dragon_target is not None:
+                dragon = dragon_target["dragon"]
+                if dragon is None:
+                    dragon_interaction = _blocked_dragon_interaction(
+                        dragon_target["reason_code"]
+                    )
+                else:
+                    commit_result = persistence_adapter.commit_dragon_interaction(
+                        player_id=player_id,
+                        dragon_id=dragon["dragon_id"],
+                        source_interaction_event_id=source_event_id,
+                    )
+                    persisted_source = persistence_adapter.get_interaction_event(
+                        source_event_id
+                    )
+                    payload = (
+                        persisted_source.get("event_payload")
+                        if isinstance(persisted_source, Mapping)
+                        else None
+                    )
+                    formal_result = (
+                        payload.get("dragon_interaction")
+                        if isinstance(payload, Mapping)
+                        else None
+                    )
+                    if not isinstance(formal_result, Mapping):
+                        raise PersistenceMappingError(
+                            "Committed Dragon interaction could not be read back."
+                        )
+                    dragon_interaction = _committed_dragon_interaction_response(
+                        dragon=dragon,
+                        commit_result=commit_result,
+                        formal_result=formal_result,
+                    )
+                return {
+                    "structured_action": structured_action,
+                    "resolution": resolution,
+                    "player_message": dragon_interaction["player_message"],
+                    "source_event_id": source_event_id,
+                    "dragon_encounter": _no_dragon_encounter_for_interaction(),
+                    "dragon_interaction": dragon_interaction,
+                }
+
             decision = decide_current_dragon_encounter(
                 player_id=player_id,
                 structured_action=structured_action,
@@ -811,6 +1137,7 @@ def create_app(
                 ),
                 "source_event_id": source_event_id,
                 "dragon_encounter": dragon_encounter,
+                "dragon_interaction": None,
             }
         except HTTPException:
             raise

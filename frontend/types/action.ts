@@ -73,12 +73,58 @@ export interface DragonEncounterResult {
   dragon: Dragon | null;
 }
 
+export interface DragonBondState {
+  familiarity: number;
+  trust: number;
+  fear: number;
+  bond: number;
+  riding_unlocked: boolean;
+}
+
+export interface DragonInteractionSnapshot {
+  familiarity: number;
+  trust: number;
+  fear: number;
+  bond: number;
+  taming_state: string;
+}
+
+export interface DragonInteractionResult {
+  status: "applied" | "already_applied" | "blocked" | "needs_clarification";
+  resolution_status:
+    | "success"
+    | "partial"
+    | "blocked"
+    | "needs_clarification";
+  dragon_id: string | null;
+  dragon_name: string | null;
+  interaction_type: string | null;
+  dragon_reaction: string | null;
+  relationship_effect: "positive" | "neutral" | "negative";
+  reason_code: string | null;
+  positive_category: string | null;
+  anti_farming: "full" | "familiarity_only" | "zero" | "not_applicable";
+  applied_deltas: {
+    familiarity: number;
+    trust: number;
+    fear: number;
+    bond: number;
+  };
+  bond_state: DragonBondState | null;
+  before: DragonInteractionSnapshot | null;
+  after: DragonInteractionSnapshot | null;
+  taming_state: string | null;
+  taming_transition: { from: string; to: string } | null;
+  player_message: string;
+}
+
 export interface ActionExecuteResponse {
   structured_action: StructuredFreeAction;
   resolution: FreeActionResolution;
   player_message: string;
   source_event_id: string;
   dragon_encounter: DragonEncounterResult;
+  dragon_interaction: DragonInteractionResult | null;
 }
 
 export type ActionKind =

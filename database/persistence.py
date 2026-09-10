@@ -195,6 +195,22 @@ class PostgresPersistenceAdapter:
             record = session.get(Dragon, dragon_id)
             return _dragon_record(record) if record is not None else None
 
+    def get_player_dragon_bond(
+        self,
+        *,
+        player_id: str,
+        dragon_id: str,
+    ) -> dict[str, Any] | None:
+        """Read one committed Player/Dragon relationship without mutation."""
+
+        with self._read_session() as session:
+            record = session.get(PlayerDragonBond, (player_id, dragon_id))
+            return (
+                _player_dragon_bond_state(record)
+                if record is not None
+                else None
+            )
+
     def list_committed_dragon_interactions(
         self,
         *,
