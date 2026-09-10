@@ -174,6 +174,7 @@ D4 v0.1 优先支持：
 - `approach`
 - `wait`
 - `retreat`
+- `communicate`（明确平静、非威胁的交流或安抚）
 - `offer`（例如放下食物）
 - `touch`
 - `threaten`
@@ -205,7 +206,7 @@ D4-B 最小内部 Contract：
   "source_interaction_event_id": "...",
   "dragon_id": "...",
   "status": "success | partial | blocked",
-  "interaction_type": "observe | approach | wait | retreat | offer | touch | threaten | ride_attempt | other",
+  "interaction_type": "observe | approach | wait | retreat | communicate | offer | touch | threaten | ride_attempt | other",
   "dragon_reaction": "calm | curious | wary | defensive | accepting | retreating",
   "relationship_effect": "positive | neutral | negative",
   "reason_code": "...",
@@ -282,12 +283,13 @@ Ontology 或第二个 LLM Judge。
 
 ### 6.2 Grounded Positive Interaction Categories
 
-D4 v0.1 只使用以下五类确定性正向证据：
+D4 v0.1 只使用以下六类确定性正向证据：
 
 | Category | Existing grounded semantics |
 | --- | --- |
 | `food` | `dragon_accepts_food` |
 | `close_presence` | `dragon_allows_close_presence` |
+| `communication` | Runtime 已确认的平静、非威胁交流；普通 Interaction Event Evidence |
 | `touch` | `dragon_allows_touch` |
 | `care_rescue` | `player_heals_dragon` 或 `player_rescues_dragon` |
 | `shared_danger` | `shared_danger_survived` |
@@ -295,6 +297,17 @@ D4 v0.1 只使用以下五类确定性正向证据：
 Category 由 Runtime 根据已验证的 `interaction_type`、Dragon Reaction 和正式
 Dragon Event Type 确定。LLM 不得输出或决定“这是重大事件/正向类别”，玩家叙述
 也不能直接计入 Category。同一 source Interaction 最多贡献一次对应 Category。
+
+D4 v0.1 真人 MVP 中无需额外系统即可稳定获得的三类是：
+
+```text
+close_presence + communication + touch
+```
+
+`communicate` 只在 D2 Structured Action 的 `action / intent / method / target /
+action_family` 明确表达平静、非威胁交流时成立；模糊说话或威胁不会被强制归类。
+Food 继续要求 Grounded Inventory，`care_rescue/shared_danger` 在没有正式 Runtime
+Context 时继续不可伪造。
 
 ### 6.3 Initial Bond
 
@@ -311,6 +324,7 @@ Dragon Event Type 确定。LLM 不得输出或决定“这是重大事件/正向
 | --- | --- | --- |
 | 远距离 observe / wait | calm/wary | neutral；通常不改数值 |
 | respect boundary / retreat | calm/retreating | neutral；不凭空增加 Bond |
+| calm communication | wary/curious | Familiarity +1、Trust +1；Bond 不直接增加 |
 | accepted offer | accepting | Familiarity +1、Trust +1；Bond 不直接增加 |
 | accepted careful approach | curious/accepting | Familiarity +1；满足条件时 Trust +1 |
 | accepted touch | accepting | 仅在已有容忍证据时允许；可 Trust +1、Bond +1 |
