@@ -12,6 +12,7 @@ is represented separately by ``interaction_events.recorded_at``.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -45,6 +46,17 @@ class IdentityFacetBackfillConflictError(PersistenceMappingError):
 
 
 _IDENTITY_CONTEXT_UNSET = object()
+
+_GROUNDED_DRAGON_INTERACTION_EVENTS = {
+    "dragon_accepts_food",
+    "dragon_allows_close_presence",
+    "dragon_allows_touch",
+    "player_heals_dragon",
+    "player_rescues_dragon",
+    "dragon_rescues_player",
+    "shared_danger_survived",
+    "dragon_tamed",
+}
 
 
 class PostgresPersistenceAdapter:
@@ -182,6 +194,306 @@ class PostgresPersistenceAdapter:
         with self._read_session() as session:
             record = session.get(Dragon, dragon_id)
             return _dragon_record(record) if record is not None else None
+
+    def list_committed_dragon_interactions(
+        self,
+        *,
+        player_id: str,
+        dragon_id: str,
+    ) -> list[dict[str, Any]]:
+        """Read effective, final D4 interaction history for one Player/Dragon."""
+
+        with self._read_session() as session:
+            return _committed_dragon_interactions(
+                session,
+                player_id=player_id,
+                dragon_id=dragon_id,
+            )
+
+    def commit_dragon_interaction(
+        self,
+        *,
+        player_id: str,
+        dragon_id: str,
+        source_interaction_event_id: str,
+    ) -> dict[str, Any]:
+        """Re-resolve and atomically apply one grounded D4 interaction.
+
+        The source event supplies the frozen D2 Structured Action. Relationship
+        deltas, anti-farming, categories, and taming preview are always rebuilt
+        from rows locked in this transaction; callers cannot submit them.
+        """
+
+        from core.dragon_interaction_resolution import (
+            BOND_BOUNDS,
+            POSITIVE_CATEGORIES,
+            resolve_dragon_interaction,
+        )
+
+        with self._write_session() as session:
+            source = session.scalar(
+                select(InteractionEvent)
+                .where(InteractionEvent.event_id == source_interaction_event_id)
+                .with_for_update()
+            )
+            if source is None:
+                raise PersistenceMappingError(
+                    "Source Interaction Event does not exist."
+                )
+            if source.event_type != "free_world_action":
+                raise PersistenceMappingError(
+                    "Dragon interaction source must be a free_world_action event."
+                )
+            if source.player_id != player_id:
+                raise PersistenceMappingError(
+                    "Dragon interaction source belongs to another Player."
+                )
+
+            source_payload = source.event_payload
+            if not isinstance(source_payload, Mapping):
+                raise PersistenceMappingError(
+                    "Dragon interaction source payload is invalid."
+                )
+            existing = source_payload.get("dragon_interaction")
+            if existing is not None:
+                return _already_applied_dragon_interaction(
+                    existing,
+                    player_id=player_id,
+                    dragon_id=dragon_id,
+                    source_interaction_event_id=source_interaction_event_id,
+                )
+
+            structured_action = source_payload.get("structured_action")
+            d2_resolution = source_payload.get("resolution")
+            if not isinstance(structured_action, Mapping) or not isinstance(
+                d2_resolution, Mapping
+            ):
+                raise PersistenceMappingError(
+                    "Dragon interaction source lacks the formal D2 result."
+                )
+
+            player_state = session.scalar(
+                select(PlayerState)
+                .where(PlayerState.player_id == player_id)
+                .with_for_update()
+            )
+            if player_state is None:
+                raise PersistenceMappingError(
+                    f"PlayerState does not exist: {player_id}"
+                )
+            dragon = session.scalar(
+                select(Dragon)
+                .where(Dragon.dragon_id == dragon_id)
+                .with_for_update()
+            )
+            if dragon is None:
+                raise PersistenceMappingError(f"Dragon does not exist: {dragon_id}")
+            _validate_dragon_interaction_target(
+                structured_action,
+                d2_resolution,
+                dragon,
+            )
+
+            bond = session.scalar(
+                select(PlayerDragonBond)
+                .where(
+                    PlayerDragonBond.player_id == player_id,
+                    PlayerDragonBond.dragon_id == dragon_id,
+                )
+                .with_for_update()
+            )
+            bond_snapshot = (
+                _player_dragon_bond_record(bond)
+                if bond is not None
+                else _empty_player_dragon_bond(player_id, dragon_id)
+            )
+            history = _committed_dragon_interactions(
+                session,
+                player_id=player_id,
+                dragon_id=dragon_id,
+                exclude_event_id=source_interaction_event_id,
+            )
+            positive_categories = _grounded_positive_categories(
+                history,
+                allowed=POSITIVE_CATEGORIES,
+            )
+
+            resolution = resolve_dragon_interaction(
+                structured_action,
+                source_interaction_event_id=source_interaction_event_id,
+                player_id=player_id,
+                dragon_id=dragon_id,
+                dragon=_dragon_record(dragon),
+                player_location=player_state.current_location,
+                bond=bond_snapshot,
+                recent_history=history,
+                positive_categories=positive_categories,
+                player_inventory=list(player_state.inventory),
+            )
+
+            before = {
+                field: bond_snapshot[field]
+                for field in BOND_BOUNDS
+            }
+            before["taming_state"] = dragon.taming_state
+            proposed = resolution["state_changes"]
+            may_apply = resolution["status"] in {"success", "partial"}
+            applied_deltas: dict[str, int] = {}
+            after_values: dict[str, int] = {}
+            for field, (minimum, maximum) in BOND_BOUNDS.items():
+                proposed_delta = proposed[f"{field}_delta"] if may_apply else 0
+                after_value = min(
+                    maximum,
+                    max(minimum, bond_snapshot[field] + proposed_delta),
+                )
+                after_values[field] = after_value
+                applied_deltas[field] = after_value - bond_snapshot[field]
+
+            if resolution["interaction_type"] == "offer_food" and may_apply:
+                player_state.inventory = _consume_grounded_food_item(
+                    player_state.inventory
+                )
+
+            has_relationship_change = any(applied_deltas.values())
+            if bond is None and has_relationship_change:
+                bond = PlayerDragonBond(
+                    player_id=player_id,
+                    dragon_id=dragon_id,
+                    familiarity=0,
+                    trust=0,
+                    fear=0,
+                    bond=0,
+                    riding_unlocked=False,
+                    last_significant_event_id=None,
+                )
+                session.add(bond)
+            if bond is not None and has_relationship_change:
+                bond.familiarity = after_values["familiarity"]
+                bond.trust = after_values["trust"]
+                bond.fear = after_values["fear"]
+                bond.bond = after_values["bond"]
+
+            current_category = resolution["positive_category"]
+            if (
+                may_apply
+                and current_category in POSITIVE_CATEGORIES
+                and resolution["anti_farming"] in {"full", "familiarity_only"}
+            ):
+                positive_categories = sorted(
+                    {*positive_categories, current_category}
+                )
+
+            may_advance_taming = (
+                may_apply
+                and resolution["relationship_effect"] == "positive"
+                and resolution["positive_category"] in POSITIVE_CATEGORIES
+            )
+            next_state = (
+                resolution["next_taming_state_preview"]
+                if may_advance_taming
+                else None
+            )
+            transition = _validated_taming_transition(
+                dragon.taming_state,
+                next_state,
+            )
+            if transition is not None:
+                dragon.taming_state = transition["to"]
+
+            after = dict(after_values)
+            after["taming_state"] = dragon.taming_state
+            dragon_event: DragonEvent | None = None
+            grounded_event_type = (
+                "dragon_tamed"
+                if transition is not None and transition["to"] == "tamed"
+                else resolution["significant_event"]
+            )
+            if grounded_event_type is not None:
+                if grounded_event_type not in _GROUNDED_DRAGON_INTERACTION_EVENTS:
+                    raise PersistenceMappingError(
+                        "Dragon interaction significant event is not grounded."
+                    )
+                event_id = _stable_dragon_interaction_event_id(
+                    source_interaction_event_id,
+                    grounded_event_type,
+                )
+                if session.get(DragonEvent, event_id) is not None:
+                    raise PersistenceMappingError(
+                        "Dragon interaction event exists without an applied source."
+                    )
+                dragon_event = DragonEvent(
+                    event_id=event_id,
+                    event_type=grounded_event_type,
+                    dragon_id=dragon_id,
+                    player_id=player_id,
+                    source_interaction_event_id=source_interaction_event_id,
+                    world_day=source.world_day,
+                    world_hour=source.world_hour,
+                    location_id=dragon.current_location,
+                    milestone_key=(
+                        "tamed" if grounded_event_type == "dragon_tamed" else None
+                    ),
+                    event_payload={
+                        "interaction_type": resolution["interaction_type"],
+                        "before": before,
+                        "after": after,
+                    },
+                )
+                session.add(dragon_event)
+                session.flush()
+                if bond is not None:
+                    bond.last_significant_event_id = event_id
+
+            formal_result = {
+                "dragon_id": dragon_id,
+                "player_id": player_id,
+                "source_interaction_event_id": source_interaction_event_id,
+                "status": resolution["status"],
+                "interaction_type": resolution["interaction_type"],
+                "dragon_reaction": resolution["dragon_reaction"],
+                "relationship_effect": resolution["relationship_effect"],
+                "reason_code": resolution["reason_code"],
+                "positive_category": resolution["positive_category"],
+                "anti_farming": resolution["anti_farming"],
+                "applied_deltas": applied_deltas,
+                "before": before,
+                "after": after,
+                "taming_transition": transition,
+                "significant_event_id": (
+                    dragon_event.event_id if dragon_event is not None else None
+                ),
+                "positive_categories": positive_categories,
+                "riding_unlocked": (
+                    bond.riding_unlocked if bond is not None else False
+                ),
+                "is_final": True,
+            }
+            updated_payload = dict(source_payload)
+            updated_payload["dragon_interaction"] = formal_result
+            source.event_payload = updated_payload
+            session.flush()
+            session.refresh(source)
+            session.refresh(dragon)
+            if bond is not None:
+                session.refresh(bond)
+
+            return {
+                "status": "applied",
+                "dragon_id": dragon_id,
+                "bond_state": (
+                    _player_dragon_bond_state(bond)
+                    if bond is not None
+                    else _empty_player_dragon_bond_state()
+                ),
+                "taming_state": dragon.taming_state,
+                "taming_transition": transition,
+                "applied_deltas": applied_deltas,
+                "positive_categories": positive_categories,
+                "dragon_event_id": (
+                    dragon_event.event_id if dragon_event is not None else None
+                ),
+                "source_interaction_event_id": source_interaction_event_id,
+            }
 
     def list_recent_dragon_encounter_decisions(
         self,
@@ -939,6 +1251,219 @@ def _validate_dragon_encounter_source(
         )
 
 
+def _validate_dragon_interaction_target(
+    structured_action: Mapping[str, Any],
+    d2_resolution: Mapping[str, Any],
+    dragon: Dragon,
+) -> None:
+    """Bind a formal D2 source to one committed Dragon without guessing."""
+
+    status = d2_resolution.get("status")
+    domain_route = d2_resolution.get("domain_route")
+    if status not in {"success", "partial", "blocked", "needs_clarification"}:
+        raise PersistenceMappingError("D2 source resolution status is invalid.")
+    target = structured_action.get("target")
+    target_matches = isinstance(target, str) and target.strip().casefold() in {
+        dragon.dragon_id.casefold(),
+        (dragon.name or "").casefold(),
+    }
+    if domain_route != "dragon" and not target_matches:
+        raise PersistenceMappingError(
+            "Source Action is not grounded to the requested Dragon."
+        )
+
+
+def _committed_dragon_interactions(
+    session: Session,
+    *,
+    player_id: str,
+    dragon_id: str,
+    exclude_event_id: str | None = None,
+) -> list[dict[str, Any]]:
+    statement = select(InteractionEvent).where(
+        InteractionEvent.player_id == player_id,
+        InteractionEvent.event_type == "free_world_action",
+        InteractionEvent.event_payload.op("?")("dragon_interaction"),
+    )
+    if exclude_event_id is not None:
+        statement = statement.where(InteractionEvent.event_id != exclude_event_id)
+    statement = statement.order_by(
+        InteractionEvent.recorded_at.desc(),
+        InteractionEvent.event_id.desc(),
+    )
+    history: list[dict[str, Any]] = []
+    for record in session.scalars(statement).all():
+        payload = record.event_payload
+        if not isinstance(payload, Mapping):
+            continue
+        interaction = payload.get("dragon_interaction")
+        if not isinstance(interaction, Mapping):
+            continue
+        if (
+            interaction.get("is_final") is not True
+            or interaction.get("player_id") != player_id
+            or interaction.get("dragon_id") != dragon_id
+            or interaction.get("status") not in {"success", "partial"}
+        ):
+            continue
+        history.append(
+            {
+                **dict(interaction),
+                "event_id": record.event_id,
+                "event_payload": {"dragon_interaction": dict(interaction)},
+            }
+        )
+    return history
+
+
+def _grounded_positive_categories(
+    history: Sequence[Mapping[str, Any]],
+    *,
+    allowed: set[str],
+) -> list[str]:
+    categories = {
+        record["positive_category"]
+        for record in history
+        if record.get("relationship_effect") == "positive"
+        and record.get("positive_category") in allowed
+        and record.get("anti_farming") in {"full", "familiarity_only"}
+    }
+    return sorted(categories)
+
+
+def _empty_player_dragon_bond(
+    player_id: str,
+    dragon_id: str,
+) -> dict[str, Any]:
+    return {
+        "player_id": player_id,
+        "dragon_id": dragon_id,
+        **_empty_player_dragon_bond_state(),
+        "last_significant_event_id": None,
+    }
+
+
+def _empty_player_dragon_bond_state() -> dict[str, Any]:
+    return {
+        "familiarity": 0,
+        "trust": 0,
+        "fear": 0,
+        "bond": 0,
+        "riding_unlocked": False,
+    }
+
+
+def _consume_grounded_food_item(inventory: Sequence[Any]) -> list[Any]:
+    """Decrement one explicit food item; ambiguous inventory fails closed."""
+
+    updated = [dict(item) if isinstance(item, Mapping) else item for item in inventory]
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for index, item in enumerate(updated):
+        if not isinstance(item, dict):
+            continue
+        category = item.get("category", item.get("type"))
+        quantity = item.get("quantity")
+        if (
+            category == "food"
+            and isinstance(item.get("item_id"), str)
+            and item["item_id"].strip()
+            and isinstance(quantity, int)
+            and not isinstance(quantity, bool)
+            and quantity > 0
+        ):
+            candidates.append((index, item))
+    if len(candidates) != 1:
+        raise PersistenceMappingError(
+            "Food consumption requires exactly one explicit consumable item."
+        )
+    index, item = candidates[0]
+    if item["quantity"] == 1:
+        del updated[index]
+    else:
+        item["quantity"] -= 1
+    return updated
+
+
+def _validated_taming_transition(
+    current_state: str,
+    next_state: Any,
+) -> dict[str, str] | None:
+    if next_state is None:
+        return None
+    adjacent = {
+        "wild": "tolerant",
+        "tolerant": "bonding",
+        "bonding": "tamed",
+        "tamed": None,
+    }
+    if current_state not in adjacent or adjacent[current_state] != next_state:
+        raise PersistenceMappingError(
+            "Dragon taming transition is not an adjacent grounded step."
+        )
+    return {"from": current_state, "to": next_state}
+
+
+def _stable_dragon_interaction_event_id(
+    source_interaction_event_id: str,
+    event_type: str,
+) -> str:
+    value = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"dragon-world:{event_type}:{source_interaction_event_id}",
+    )
+    return f"dragon_event_{value.hex}"
+
+
+def _already_applied_dragon_interaction(
+    value: Any,
+    *,
+    player_id: str,
+    dragon_id: str,
+    source_interaction_event_id: str,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or value.get("is_final") is not True:
+        raise PersistenceMappingError(
+            "Source Interaction Event has an incomplete Dragon interaction."
+        )
+    if (
+        value.get("player_id") != player_id
+        or value.get("dragon_id") != dragon_id
+        or value.get("source_interaction_event_id")
+        != source_interaction_event_id
+    ):
+        raise PersistenceMappingError(
+            "Source Interaction Event has another Dragon interaction."
+        )
+    after = value.get("after")
+    deltas = value.get("applied_deltas")
+    categories = value.get("positive_categories", [])
+    if not isinstance(after, Mapping) or not isinstance(deltas, Mapping):
+        raise PersistenceMappingError(
+            "Applied Dragon interaction read-back is invalid."
+        )
+    if not isinstance(categories, list):
+        raise PersistenceMappingError(
+            "Applied Dragon interaction categories are invalid."
+        )
+    return {
+        "status": "already_applied",
+        "dragon_id": dragon_id,
+        "bond_state": {
+            "familiarity": after["familiarity"],
+            "trust": after["trust"],
+            "fear": after["fear"],
+            "bond": after["bond"],
+            "riding_unlocked": bool(value.get("riding_unlocked", False)),
+        },
+        "taming_state": after["taming_state"],
+        "taming_transition": value.get("taming_transition"),
+        "applied_deltas": dict(deltas),
+        "positive_categories": list(categories),
+        "dragon_event_id": value.get("significant_event_id"),
+        "source_interaction_event_id": source_interaction_event_id,
+    }
+
+
 def _dragon_encounter_decision_value(value: Any) -> dict[str, Any]:
     required = {
         "outcome",
@@ -1041,6 +1566,27 @@ def _dragon_record(record: Dragon) -> dict[str, Any]:
         "alertness": record.alertness,
         "behavior_state": record.behavior_state,
         "taming_state": record.taming_state,
+    }
+
+
+def _player_dragon_bond_record(record: PlayerDragonBond) -> dict[str, Any]:
+    return {
+        "player_id": record.player_id,
+        "dragon_id": record.dragon_id,
+        "familiarity": record.familiarity,
+        "trust": record.trust,
+        "fear": record.fear,
+        "bond": record.bond,
+        "riding_unlocked": record.riding_unlocked,
+        "last_significant_event_id": record.last_significant_event_id,
+    }
+
+
+def _player_dragon_bond_state(record: PlayerDragonBond) -> dict[str, Any]:
+    value = _player_dragon_bond_record(record)
+    return {
+        key: value[key]
+        for key in ("familiarity", "trust", "fear", "bond", "riding_unlocked")
     }
 
 
