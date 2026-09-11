@@ -12,12 +12,16 @@ is represented separately by ``interaction_events.recorded_at``.
 
 from __future__ import annotations
 
+import copy
+import re
 import uuid
 from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from database.models import (
@@ -30,6 +34,7 @@ from database.models import (
     Player,
     PlayerDragonBond,
     PlayerState,
+    WorldStateEntry,
 )
 
 
@@ -57,6 +62,8 @@ _GROUNDED_DRAGON_INTERACTION_EVENTS = {
     "shared_danger_survived",
     "dragon_tamed",
 }
+
+_DYNAMIC_LOCATION_REGISTRY_STATE_ID = "world.dynamic_locations.v1"
 
 
 class PostgresPersistenceAdapter:
@@ -921,6 +928,131 @@ class PostgresPersistenceAdapter:
                 "interaction_event": _interaction_event_record(record),
             }
 
+    def get_dynamic_location_registry(self) -> dict[str, Any]:
+        """Read the small PostgreSQL Dynamic Location overlay without mutation."""
+
+        with self._read_session() as session:
+            record = session.get(
+                WorldStateEntry,
+                _DYNAMIC_LOCATION_REGISTRY_STATE_ID,
+            )
+            if record is None:
+                return {"version": 1, "locations": {}}
+            return _dynamic_location_registry_value(record.state_value)
+
+    def commit_location_discovery(
+        self,
+        *,
+        player_id: str,
+        source_interaction_event_id: str,
+        location: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically add one grounded Location and its explicit return route."""
+
+        grounded = _dynamic_location_value(location)
+        source_location_id = grounded["discovered_from_location_id"]
+        location_id = grounded["location_id"]
+        with self._write_session() as session:
+            source = session.scalar(
+                select(InteractionEvent)
+                .where(InteractionEvent.event_id == source_interaction_event_id)
+                .with_for_update()
+            )
+            if source is None or source.event_type != "free_world_action":
+                raise PersistenceMappingError(
+                    "Location discovery source must be a free_world_action Event."
+                )
+            if source.player_id != player_id or source.location_id != source_location_id:
+                raise PersistenceMappingError(
+                    "Location discovery source does not match Player or Location."
+                )
+            player_state = session.scalar(
+                select(PlayerState)
+                .where(PlayerState.player_id == player_id)
+                .with_for_update()
+            )
+            if player_state is None or player_state.current_location != source_location_id:
+                raise PersistenceMappingError(
+                    "Player moved before Location discovery could be committed."
+                )
+
+            session.execute(
+                postgres_insert(WorldStateEntry)
+                .values(
+                    state_id=_DYNAMIC_LOCATION_REGISTRY_STATE_ID,
+                    state_value={"version": 1, "locations": {}},
+                    source_event_type=None,
+                    source_event_id=None,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[WorldStateEntry.state_id]
+                )
+            )
+            registry_record = session.scalar(
+                select(WorldStateEntry)
+                .where(
+                    WorldStateEntry.state_id
+                    == _DYNAMIC_LOCATION_REGISTRY_STATE_ID
+                )
+                .with_for_update()
+            )
+            if registry_record is None:
+                raise PersistenceMappingError(
+                    "Dynamic Location Registry could not be locked."
+                )
+            registry = _dynamic_location_registry_value(
+                registry_record.state_value
+            )
+            locations = registry["locations"]
+            source_payload = dict(source.event_payload or {})
+            existing_result = source_payload.get("location_discovery")
+            if existing_result is not None:
+                if not isinstance(existing_result, Mapping):
+                    raise PersistenceMappingError(
+                        "Existing Location discovery result is invalid."
+                    )
+                existing_id = existing_result.get("location_id")
+                existing_location = locations.get(existing_id)
+                if existing_id != location_id or existing_location != grounded:
+                    raise PersistenceMappingError(
+                        "Source Event already committed a different Location."
+                    )
+                return {
+                    "status": "already_applied",
+                    "location": copy.deepcopy(existing_location),
+                }
+
+            if location_id in locations:
+                raise PersistenceMappingError(
+                    "Dynamic Location ID already belongs to another discovery."
+                )
+            wanted_name = _normalized_location_name(grounded["name"])
+            if any(
+                _normalized_location_name(existing["name"]) == wanted_name
+                for existing in locations.values()
+            ):
+                raise PersistenceMappingError(
+                    "Dynamic Location name already exists."
+                )
+
+            locations[location_id] = copy.deepcopy(grounded)
+            registry_record.state_value = registry
+            registry_record.source_event_type = source.event_type
+            registry_record.source_event_id = source_interaction_event_id
+            registry_record.updated_at = datetime.now(timezone.utc)
+            source_payload["location_discovery"] = {
+                "status": "committed",
+                "location_id": location_id,
+                "location": copy.deepcopy(grounded),
+            }
+            source.event_payload = source_payload
+            session.flush()
+            session.refresh(registry_record)
+            return {
+                "status": "committed",
+                "location": copy.deepcopy(grounded),
+            }
+
     def upsert_player_state(
         self,
         *,
@@ -1752,3 +1884,76 @@ def _interaction_event_record(record: InteractionEvent) -> dict[str, Any]:
         ),
         "recorded_at": record.recorded_at.isoformat(),
     }
+
+
+def _normalized_location_name(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PersistenceMappingError("Dynamic Location name is invalid.")
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", value.casefold())
+
+
+def _dynamic_location_value(value: Any) -> dict[str, Any]:
+    required = {
+        "location_id",
+        "name",
+        "location_type",
+        "short_description",
+        "environment_tags",
+        "discovery_reason",
+        "origin",
+        "discovery_status",
+        "source_interaction_event_id",
+        "discovered_from_location_id",
+        "connections",
+    }
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise PersistenceMappingError("Dynamic Location fields are invalid.")
+    result = copy.deepcopy(dict(value))
+    for field in (
+        "location_id",
+        "name",
+        "location_type",
+        "short_description",
+        "discovery_reason",
+        "source_interaction_event_id",
+        "discovered_from_location_id",
+    ):
+        if not isinstance(result[field], str) or not result[field].strip():
+            raise PersistenceMappingError(
+                f"Dynamic Location {field} is invalid."
+            )
+        result[field] = result[field].strip()
+    if result["origin"] != "dynamic" or result["discovery_status"] != "discovered":
+        raise PersistenceMappingError("Dynamic Location truth state is invalid.")
+    for field in ("environment_tags", "connections"):
+        values = result[field]
+        if not isinstance(values, list) or not values or not all(
+            isinstance(item, str) and item.strip() for item in values
+        ):
+            raise PersistenceMappingError(f"Dynamic Location {field} is invalid.")
+        result[field] = [item.strip() for item in values]
+        if len(set(result[field])) != len(result[field]):
+            raise PersistenceMappingError(
+                f"Dynamic Location {field} must be unique."
+            )
+    if result["connections"] != [result["discovered_from_location_id"]]:
+        raise PersistenceMappingError(
+            "D5 v0.1 Dynamic Location must have one explicit return connection."
+        )
+    return result
+
+
+def _dynamic_location_registry_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {"version", "locations"}:
+        raise PersistenceMappingError("Dynamic Location Registry fields are invalid.")
+    if value.get("version") != 1 or not isinstance(value.get("locations"), Mapping):
+        raise PersistenceMappingError("Dynamic Location Registry version is invalid.")
+    locations: dict[str, Any] = {}
+    for location_id, location in value["locations"].items():
+        grounded = _dynamic_location_value(location)
+        if location_id != grounded["location_id"]:
+            raise PersistenceMappingError(
+                "Dynamic Location Registry key does not match location_id."
+            )
+        locations[location_id] = grounded
+    return {"version": 1, "locations": locations}

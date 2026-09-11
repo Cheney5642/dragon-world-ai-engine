@@ -39,6 +39,22 @@ def load_world_skeleton(path: Path = WORLD_SEED_PATH) -> dict[str, Any]:
     return world
 
 
+def load_runtime_world_skeleton(
+    persistence: PostgresPersistenceAdapter,
+    path: Path = WORLD_SEED_PATH,
+) -> dict[str, Any]:
+    """Overlay persisted Dynamic Locations onto the authored world skeleton."""
+
+    from core.location_discovery import merge_location_registries
+
+    skeleton = load_world_skeleton(path)
+    skeleton["locations"] = merge_location_registries(
+        skeleton["locations"],
+        persistence.get_dynamic_location_registry(),
+    )
+    return skeleton
+
+
 def validate_resolution_result(result: Mapping[str, Any]) -> None:
     required = {
         "status",
@@ -310,7 +326,11 @@ def resolve_current_action(
     player_state = persistence.get_player_state(player_id)
     if player_state is None:
         raise ActionResolutionError(f"PlayerState does not exist: {player_id}")
-    skeleton = dict(world_skeleton or load_world_skeleton())
+    skeleton = dict(
+        world_skeleton
+        if world_skeleton is not None
+        else load_runtime_world_skeleton(persistence)
+    )
     locations = skeleton.get("locations")
     npcs = skeleton.get("npcs", {})
     if not isinstance(locations, Mapping) or not isinstance(npcs, Mapping):
@@ -340,7 +360,11 @@ def commit_action_resolution(
     player_state = persistence.get_player_state(player_id)
     if player_state is None:
         raise ActionResolutionError(f"PlayerState does not exist: {player_id}")
-    skeleton = dict(world_skeleton or load_world_skeleton())
+    skeleton = dict(
+        world_skeleton
+        if world_skeleton is not None
+        else load_runtime_world_skeleton(persistence)
+    )
     locations = skeleton.get("locations")
     npcs = skeleton.get("npcs", {})
     clock = skeleton.get("world")

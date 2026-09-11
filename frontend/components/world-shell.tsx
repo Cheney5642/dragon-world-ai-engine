@@ -146,6 +146,7 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
   const resolution = result.resolution;
   const encounter = result.dragon_encounter;
   const interaction = result.dragon_interaction;
+  const discovery = result.location_discovery;
   const hasStateChanges = Object.keys(resolution.state_changes).length > 0;
   const actionFields: Array<[string, string | boolean | null]> = [
     ["action", action.action],
@@ -320,8 +321,48 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
             </dl>
           </article>
         ) : null}
+
+        {discovery ? (
+          <article className={styles.previewCard}>
+            <span>06 · {UI_COPY.actionDeveloper.locationDiscovery}</span>
+            <h4>{discovery.status}</h4>
+            <dl className={styles.developerFacts}>
+              <div>
+                <dt>location_id</dt>
+                <dd>{discovery.location_id}</dd>
+              </div>
+              <div>
+                <dt>name</dt>
+                <dd>{discovery.name}</dd>
+              </div>
+              <div>
+                <dt>location_type</dt>
+                <dd>{discovery.location_type}</dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
       </div>
     </details>
+  );
+}
+
+function LocationDiscoveryPanel({ result }: { result: ActionExecuteResponse }) {
+  const discovery = result.location_discovery;
+  if (!discovery) return null;
+
+  return (
+    <section className={styles.dragonEncounterPanel} aria-live="polite">
+      <span>{UI_COPY.locationDiscovery.section}</span>
+      <h3>{discovery.name}</h3>
+      <p>{discovery.short_description}</p>
+      <dl className={styles.dragonFacts}>
+        <div>
+          <dt>{UI_COPY.world.location}</dt>
+          <dd>{displayLabel(discovery.location_type)}</dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
@@ -557,7 +598,9 @@ export function WorldShell() {
 
   const { player, world, current_location: location } = worldState;
   const locationMood =
-    LOCATION_MOOD_COPY[location.id] ?? UI_COPY.world.fallbackMood;
+    location.description ??
+    LOCATION_MOOD_COPY[location.id] ??
+    UI_COPY.world.fallbackMood;
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
@@ -917,9 +960,14 @@ export function WorldShell() {
             {actionError}
           </p>
         ) : null}
+        {actionResult?.location_discovery ? (
+          <LocationDiscoveryPanel result={actionResult} />
+        ) : null}
         {actionResult?.dragon_interaction ? (
           <DragonInteractionPanel result={actionResult} />
-        ) : actionResult ? (
+        ) : actionResult &&
+          (!actionResult.location_discovery ||
+            actionResult.dragon_encounter.outcome !== "none") ? (
           <DragonEncounterPanel result={actionResult} />
         ) : null}
         {actionResult ? <ActionDeveloperView result={actionResult} /> : null}

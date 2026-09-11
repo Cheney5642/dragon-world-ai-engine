@@ -22,6 +22,7 @@ from core.free_action_interpreter import (
 from core.free_action_resolution import (
     ActionResolutionError,
     commit_action_resolution,
+    load_runtime_world_skeleton,
 )
 from core.dragon_encounter_decision import (
     EncounterDecisionError,
@@ -53,6 +54,12 @@ from identity.runtime_context import (
 from dragon.candidate_runtime import (
     DragonCandidateError,
     commit_new_dragon_encounter,
+)
+from core.location_discovery import (
+    LocationDiscoveryError,
+    generate_location_candidate,
+    ground_location_candidate,
+    is_location_discovery_eligible,
 )
 from llm import LLMProviderClient, LLMProviderError
 from npc.interaction_runtime import StructuredOutputProvider
@@ -198,6 +205,7 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
             "id": current_location_id,
             "name": current_location.get("name"),
             "type": current_location.get("type"),
+            "description": current_location.get("description"),
         },
         "nearby_npcs": nearby_npcs,
         "nearby_dragons": nearby_dragons,
@@ -217,6 +225,28 @@ def _public_dragon_summary(dragon: dict[str, Any]) -> dict[str, Any]:
             dragon.get("player_relationship")
         ),
     }
+
+
+def _location_discovery_response(commit_result: Mapping[str, Any]) -> dict[str, Any]:
+    location = commit_result.get("location")
+    if not isinstance(location, Mapping):
+        raise LocationDiscoveryError("Committed Location could not be read back.")
+    return {
+        "status": commit_result["status"],
+        "location_id": location["location_id"],
+        "name": location["name"],
+        "location_type": location["location_type"],
+        "short_description": location["short_description"],
+        "environment_tags": list(location["environment_tags"]),
+        "discovery_reason": location["discovery_reason"],
+    }
+
+
+def _location_discovery_player_message(discovery: Mapping[str, Any]) -> str:
+    return (
+        f"你发现了新的地点：{discovery['name']}。"
+        f"{discovery['short_description']}"
+    )
 
 
 def _load_legacy_fixture_world(save_path: Path) -> dict[str, Any]:
@@ -245,9 +275,9 @@ def _load_postgres_world(
     """Compose Runtime World Context from config plus PostgreSQL current state."""
 
     try:
-        world_state = interpret_action.load_json_object(
+        world_state = load_runtime_world_skeleton(
+            persistence,
             WORLD_SEED_PATH,
-            "Dragon World seed configuration",
         )
         seed_player = world_state.get("player")
         if not isinstance(seed_player, dict):
@@ -771,6 +801,7 @@ def create_app(
     identity_provider_client: LLMProviderClient | None = None,
     action_provider_client: LLMProviderClient | None = None,
     dragon_provider_client: LLMProviderClient | None = None,
+    location_provider_client: LLMProviderClient | None = None,
     dragon_encounter_roll: float | None = None,
     persistence_adapter: PostgresPersistenceAdapter | None = None,
 ) -> FastAPI:
@@ -1032,6 +1063,34 @@ def create_app(
             source_event_id = committed["interaction_event"]["event_id"]
             encounter_location_id = committed["player_state"]["current_location"]
 
+            location_discovery: dict[str, Any] | None = None
+            if is_location_discovery_eligible(structured_action, resolution):
+                runtime_skeleton = load_runtime_world_skeleton(
+                    persistence_adapter,
+                    WORLD_SEED_PATH,
+                )
+                locations = runtime_skeleton["locations"]
+                candidate = generate_location_candidate(
+                    structured_action=structured_action,
+                    current_location_id=encounter_location_id,
+                    locations=locations,
+                    provider_client=location_provider_client,
+                )
+                grounded_location = ground_location_candidate(
+                    candidate=candidate,
+                    structured_action=structured_action,
+                    resolution=resolution,
+                    source_interaction_event_id=source_event_id,
+                    current_location_id=encounter_location_id,
+                    locations=locations,
+                )
+                location_commit = persistence_adapter.commit_location_discovery(
+                    player_id=player_id,
+                    source_interaction_event_id=source_event_id,
+                    location=grounded_location,
+                )
+                location_discovery = _location_discovery_response(location_commit)
+
             dragon_target = _ground_dragon_interaction_target(
                 structured_action=structured_action,
                 resolution=resolution,
@@ -1079,6 +1138,7 @@ def create_app(
                     "source_event_id": source_event_id,
                     "dragon_encounter": _no_dragon_encounter_for_interaction(),
                     "dragon_interaction": dragon_interaction,
+                    "location_discovery": None,
                 }
 
             decision = decide_current_dragon_encounter(
@@ -1128,16 +1188,27 @@ def create_app(
                 "source": encounter_source,
                 "dragon": committed_dragon,
             }
+            player_message = _dragon_encounter_player_message(
+                resolution,
+                dragon_encounter,
+            )
+            if location_discovery is not None:
+                discovery_message = _location_discovery_player_message(
+                    location_discovery
+                )
+                player_message = (
+                    discovery_message
+                    if dragon_encounter["outcome"] == "none"
+                    else f"{discovery_message} {player_message}"
+                )
             return {
                 "structured_action": structured_action,
                 "resolution": resolution,
-                "player_message": _dragon_encounter_player_message(
-                    resolution,
-                    dragon_encounter,
-                ),
+                "player_message": player_message,
                 "source_event_id": source_event_id,
                 "dragon_encounter": dragon_encounter,
                 "dragon_interaction": None,
+                "location_discovery": location_discovery,
             }
         except HTTPException:
             raise

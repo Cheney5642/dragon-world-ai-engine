@@ -118,6 +118,16 @@ export interface DragonInteractionResult {
   player_message: string;
 }
 
+export interface LocationDiscoveryResult {
+  status: "committed" | "already_applied";
+  location_id: string;
+  name: string;
+  location_type: string;
+  short_description: string;
+  environment_tags: string[];
+  discovery_reason: string;
+}
+
 export interface ActionExecuteResponse {
   structured_action: StructuredFreeAction;
   resolution: FreeActionResolution;
@@ -125,6 +135,7 @@ export interface ActionExecuteResponse {
   source_event_id: string;
   dragon_encounter: DragonEncounterResult;
   dragon_interaction: DragonInteractionResult | null;
+  location_discovery: LocationDiscoveryResult | null;
 }
 
 export type ActionKind =

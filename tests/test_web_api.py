@@ -221,7 +221,7 @@ class WebApiSmokeTests(unittest.TestCase):
         )
         self.assertEqual(
             set(payload["current_location"]),
-            {"id", "name", "type"},
+            {"id", "name", "type", "description"},
         )
         for npc in payload["nearby_npcs"]:
             self.assertEqual(

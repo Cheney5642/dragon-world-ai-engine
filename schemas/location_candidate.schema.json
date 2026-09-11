@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "location_candidate.schema.json",
+  "title": "D5 Dynamic Location Candidate v0.1",
+  "description": "Creative location proposal only. It has no stable ID, connection, ownership, entity creation, player movement, or World Truth authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "location_type",
+    "short_description",
+    "environment_tags",
+    "discovery_reason"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "location_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$"
+    },
+    "short_description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "environment_tags": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+      }
+    },
+    "discovery_reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  }
+}

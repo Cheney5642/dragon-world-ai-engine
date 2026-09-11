@@ -308,10 +308,15 @@ export const UI_COPY = {
     worldEffect: "World Effect",
     dragonEncounter: "Dragon Encounter",
     dragonInteraction: "Dragon Interaction",
+    locationDiscovery: "Location Discovery",
     persistentMutation: "Persistent Mutation",
     noPersistentMutation: "No Persistent Mutation",
     routedToDragon: "Routed to Dragon Domain",
     routedToNpc: "Routed to NPC Domain",
+  },
+  locationDiscovery: {
+    section: "DISCOVERY",
+    title: "你发现了新的地点",
   },
 } as const;
 
