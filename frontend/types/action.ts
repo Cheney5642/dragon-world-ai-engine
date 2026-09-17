@@ -128,6 +128,27 @@ export interface LocationDiscoveryResult {
   discovery_reason: string;
 }
 
+export interface DragonRidingResult {
+  status: "success" | "already_applied" | "blocked";
+  operation: "mount" | "mounted_travel" | "dismount";
+  reason_code: string;
+  dragon_id: string | null;
+  dragon_name: string | null;
+  destination_id: string | null;
+  riding_unlocked: boolean;
+  mounted_dragon_id: string | null;
+  dragon_event_id: string | null;
+}
+
+export interface SceneVisualResult {
+  status: "generated" | "disabled" | "failed";
+  trigger: string;
+  provider: string;
+  context_hash: string | null;
+  camera: "first_person" | "first_person_dragon_back" | null;
+  image_url: string | null;
+}
+
 export interface ActionExecuteResponse {
   structured_action: StructuredFreeAction;
   resolution: FreeActionResolution;
@@ -135,7 +156,9 @@ export interface ActionExecuteResponse {
   source_event_id: string;
   dragon_encounter: DragonEncounterResult;
   dragon_interaction: DragonInteractionResult | null;
+  dragon_riding: DragonRidingResult | null;
   location_discovery: LocationDiscoveryResult | null;
+  scene_visual: SceneVisualResult | null;
 }
 
 export type ActionKind =

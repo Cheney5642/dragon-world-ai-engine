@@ -168,6 +168,9 @@ export const UI_COPY = {
     species: "种族",
     occupation: "职业",
     currentLocation: "当前位置",
+    ridingState: "骑乘状态",
+    mountedOn: (name: string) => `正在骑乘 ${name}`,
+    onFoot: "步行",
     goals: "目标",
     noGoals: "尚未记录目标。",
     inventory: "物品栏",
@@ -189,6 +192,18 @@ export const UI_COPY = {
     nearbyDragons: "附近的龙",
     noNearbyDragons: "附近没有已确认出现的龙。",
     dayLabel: (day: number) => `第 ${day} 天`,
+  },
+  sceneVisual: {
+    loading: "正在渲染第一人称场景……",
+    generated: "第一人称场景",
+    unavailable: "场景图片暂不可用，文字世界仍可继续。",
+  },
+  dragonRiding: {
+    section: "巨龙骑乘",
+    destination: "目的地",
+    unlock: "骑乘许可",
+    unlocked: "已解锁",
+    locked: "尚未解锁",
   },
   developer: {
     title: "开发者视图",

@@ -71,4 +71,11 @@ export interface WorldState {
   current_location: Location;
   nearby_npcs: NPC[];
   nearby_dragons: Dragon[];
+  riding: RidingState;
+}
+
+export interface RidingState {
+  is_mounted: boolean;
+  mounted_dragon_id: string | null;
+  mounted_dragon_name: string | null;
 }

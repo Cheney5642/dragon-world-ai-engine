@@ -147,6 +147,8 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
   const encounter = result.dragon_encounter;
   const interaction = result.dragon_interaction;
   const discovery = result.location_discovery;
+  const riding = result.dragon_riding;
+  const visual = result.scene_visual;
   const hasStateChanges = Object.keys(resolution.state_changes).length > 0;
   const actionFields: Array<[string, string | boolean | null]> = [
     ["action", action.action],
@@ -342,6 +344,56 @@ function ActionDeveloperView({ result }: { result: ActionExecuteResponse }) {
             </dl>
           </article>
         ) : null}
+
+        {riding ? (
+          <article className={styles.previewCard}>
+            <span>07 · Dragon Riding</span>
+            <h4>{riding.operation}</h4>
+            <dl className={styles.developerFacts}>
+              <div>
+                <dt>status</dt>
+                <dd>{riding.status}</dd>
+              </div>
+              <div>
+                <dt>reason_code</dt>
+                <dd>{riding.reason_code}</dd>
+              </div>
+              <div>
+                <dt>mounted_dragon_id</dt>
+                <dd>{riding.mounted_dragon_id ?? "null"}</dd>
+              </div>
+              <div>
+                <dt>destination_id</dt>
+                <dd>{riding.destination_id ?? "null"}</dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
+
+        {visual ? (
+          <article className={styles.previewCard}>
+            <span>08 · Scene Renderer</span>
+            <h4>{visual.status}</h4>
+            <dl className={styles.developerFacts}>
+              <div>
+                <dt>trigger</dt>
+                <dd>{visual.trigger}</dd>
+              </div>
+              <div>
+                <dt>camera</dt>
+                <dd>{visual.camera ?? "null"}</dd>
+              </div>
+              <div>
+                <dt>provider</dt>
+                <dd>{visual.provider}</dd>
+              </div>
+              <div>
+                <dt>context_hash</dt>
+                <dd>{visual.context_hash ?? "null"}</dd>
+              </div>
+            </dl>
+          </article>
+        ) : null}
       </div>
     </details>
   );
@@ -430,6 +482,35 @@ function DragonInteractionPanel({ result }: { result: ActionExecuteResponse }) {
           <dt>{UI_COPY.dragonInteraction.status}</dt>
           <dd>{displayLabel(interaction.taming_state)}</dd>
         </div>
+      </dl>
+    </section>
+  );
+}
+
+function DragonRidingPanel({ result }: { result: ActionExecuteResponse }) {
+  const riding = result.dragon_riding;
+  if (!riding?.dragon_id || !riding.dragon_name) return null;
+
+  return (
+    <section className={styles.dragonInteractionPanel} aria-live="polite">
+      <span>{UI_COPY.dragonRiding.section}</span>
+      <h3>{riding.dragon_name}</h3>
+      <p>{result.player_message}</p>
+      <dl className={styles.dragonFacts}>
+        <div>
+          <dt>{UI_COPY.dragonRiding.unlock}</dt>
+          <dd>
+            {riding.riding_unlocked
+              ? UI_COPY.dragonRiding.unlocked
+              : UI_COPY.dragonRiding.locked}
+          </dd>
+        </div>
+        {riding.destination_id ? (
+          <div>
+            <dt>{UI_COPY.dragonRiding.destination}</dt>
+            <dd>{displayLabel(riding.destination_id)}</dd>
+          </div>
+        ) : null}
       </dl>
     </section>
   );
@@ -601,6 +682,10 @@ export function WorldShell() {
     location.description ??
     LOCATION_MOOD_COPY[location.id] ??
     UI_COPY.world.fallbackMood;
+  const showRidingPanel = Boolean(
+    actionResult?.dragon_riding?.dragon_id &&
+      actionResult.dragon_riding.dragon_name,
+  );
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
@@ -661,6 +746,16 @@ export function WorldShell() {
               <span>{UI_COPY.player.currentLocation}</span>
               <strong>{location.name}</strong>
             </div>
+            <div className={styles.wideIdentity}>
+              <span>{UI_COPY.player.ridingState}</span>
+              <strong>
+                {worldState.riding.is_mounted
+                  ? UI_COPY.player.mountedOn(
+                      worldState.riding.mounted_dragon_name ?? "Dragon",
+                    )
+                  : UI_COPY.player.onFoot}
+              </strong>
+            </div>
           </div>
 
           <section className={styles.listSection}>
@@ -711,6 +806,21 @@ export function WorldShell() {
           </div>
 
           <div className={styles.scene} data-location={location.id}>
+            {actionResult?.scene_visual?.status === "generated" &&
+            actionResult.scene_visual.image_url ? (
+              // Provider URLs are ephemeral presentation references, not Next.js image assets.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className={styles.sceneVisual}
+                src={actionResult.scene_visual.image_url}
+                alt={UI_COPY.sceneVisual.generated}
+              />
+            ) : null}
+            {actionRunning ? (
+              <div className={styles.sceneVisualLoading} aria-live="polite">
+                {UI_COPY.sceneVisual.loading}
+              </div>
+            ) : null}
             <div className={styles.skyGlow} />
             <div className={styles.mistBack} />
             <div className={styles.distantLand} />
@@ -762,6 +872,12 @@ export function WorldShell() {
             <div>
               <dt>{UI_COPY.world.location}</dt>
               <dd>{location.name}</dd>
+            </div>
+            <div>
+              <dt>{UI_COPY.player.ridingState}</dt>
+              <dd>
+                {worldState.riding.mounted_dragon_name ?? UI_COPY.player.onFoot}
+              </dd>
             </div>
           </dl>
 
@@ -963,12 +1079,22 @@ export function WorldShell() {
         {actionResult?.location_discovery ? (
           <LocationDiscoveryPanel result={actionResult} />
         ) : null}
+        {actionResult && showRidingPanel ? (
+          <DragonRidingPanel result={actionResult} />
+        ) : null}
         {actionResult?.dragon_interaction ? (
           <DragonInteractionPanel result={actionResult} />
         ) : actionResult &&
+          !showRidingPanel &&
           (!actionResult.location_discovery ||
             actionResult.dragon_encounter.outcome !== "none") ? (
           <DragonEncounterPanel result={actionResult} />
+        ) : null}
+        {actionResult?.scene_visual &&
+        actionResult.scene_visual.status !== "generated" ? (
+          <p className={styles.sceneVisualFallback}>
+            {UI_COPY.sceneVisual.unavailable}
+          </p>
         ) : null}
         {actionResult ? <ActionDeveloperView result={actionResult} /> : null}
       </section>

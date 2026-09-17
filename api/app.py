@@ -61,7 +61,19 @@ from core.location_discovery import (
     ground_location_candidate,
     is_location_discovery_eligible,
 )
+from core.dragon_riding import (
+    DragonRidingError,
+    classify_riding_operation,
+    commit_riding_action,
+    route_grounded_riding_before_d2,
+)
 from llm import LLMProviderClient, LLMProviderError
+from multimodal.scene_renderer import (
+    SceneImageProvider,
+    create_scene_image_provider,
+    render_scene_visual,
+    visual_trigger,
+)
 from npc.interaction_runtime import StructuredOutputProvider
 from scripts import execute_action
 from scripts import interpret_action
@@ -180,6 +192,13 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
             continue
         nearby_dragons.append(_public_dragon_summary(dragon))
 
+    riding = world_state.get("riding")
+    if not isinstance(riding, Mapping):
+        riding = {
+            "mounted_dragon_id": None,
+            "mounted_dragon_name": None,
+        }
+
     return {
         "player": {
             "id": player.get("id"),
@@ -209,6 +228,11 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
         },
         "nearby_npcs": nearby_npcs,
         "nearby_dragons": nearby_dragons,
+        "riding": {
+            "is_mounted": riding.get("mounted_dragon_id") is not None,
+            "mounted_dragon_id": riding.get("mounted_dragon_id"),
+            "mounted_dragon_name": riding.get("mounted_dragon_name"),
+        },
     }
 
 
@@ -271,6 +295,8 @@ def _load_legacy_fixture_world(save_path: Path) -> dict[str, Any]:
 
 def _load_postgres_world(
     persistence: PostgresPersistenceAdapter,
+    *,
+    player_id_override: str | None = None,
 ) -> dict[str, Any]:
     """Compose Runtime World Context from config plus PostgreSQL current state."""
 
@@ -284,7 +310,7 @@ def _load_postgres_world(
             raise interpret_action.ActionInterpretationError(
                 "World seed contains an invalid player template."
             )
-        player_id = seed_player.get("id")
+        player_id = player_id_override or seed_player.get("id")
         if not isinstance(player_id, str) or not player_id:
             raise interpret_action.ActionInterpretationError(
                 "World seed contains no stable Player id."
@@ -369,6 +395,24 @@ def _load_postgres_world(
                 dragon_id=dragon["dragon_id"],
             )
         world_state["nearby_dragons"] = nearby_dragons
+        riding = persistence.get_player_riding_state(player_id)
+        mounted_id = riding["mounted_dragon_id"]
+        mounted_name = None
+        if mounted_id is not None:
+            mounted_dragon = persistence.get_dragon(mounted_id)
+            if (
+                mounted_dragon is None
+                or mounted_dragon["current_location"]
+                != runtime_player["current_location"]
+            ):
+                raise interpret_action.ActionInterpretationError(
+                    "Mounted Dragon is not co-located with the Player."
+                )
+            mounted_name = mounted_dragon["name"]
+        world_state["riding"] = {
+            **riding,
+            "mounted_dragon_name": mounted_name,
+        }
         return world_state
     except interpret_action.NoPlayerError as exc:
         raise HTTPException(
@@ -455,7 +499,7 @@ def _free_action_http_error(exc: Exception) -> HTTPException:
             status_code=422,
             detail="The action interpreter could not produce a valid action.",
         )
-    if isinstance(exc, ActionResolutionError):
+    if isinstance(exc, (ActionResolutionError, DragonRidingError)):
         return HTTPException(
             status_code=409,
             detail="The action could not be resolved against the current world.",
@@ -710,6 +754,35 @@ def _dragon_interaction_player_message(
     return messages.get(str(reason), f"{name} 对你的行动作出了回应。")
 
 
+def _dragon_riding_player_message(riding: Mapping[str, Any]) -> str:
+    name = riding.get("dragon_name") or "这条龙"
+    reason = riding.get("reason_code")
+    messages = {
+        "riding_dragon_not_grounded": "没有找到这次骑乘行动明确指向的 Dragon。",
+        "riding_bond_missing": f"你与 {name} 之间还没有建立正式羁绊。",
+        "riding_dragon_not_tamed": f"{name} 还没有接受你的骑乘。",
+        "riding_location_mismatch": f"{name} 当前不在你身边。",
+        "riding_archetype_not_rideable": f"{name} 的体型不适合承载骑手。",
+        "riding_dragon_not_mature": f"{name} 还没有成长到可以承载骑手。",
+        "riding_bond_threshold_not_met": (
+            f"{name} 已被驯服，但你们的羁绊还不足以安全骑乘。"
+        ),
+        "another_dragon_already_mounted": "你已经骑在另一条 Dragon 背上。",
+        "riding_mounted": f"{name} 接受了你。你已稳稳骑上它的背。",
+        "riding_already_mounted": f"你已经骑在 {name} 背上。",
+        "riding_not_unlocked": f"{name} 尚未正式允许你骑乘。",
+        "riding_not_mounted": f"你当前没有骑在 {name} 背上。",
+        "riding_destination_not_grounded": "目的地尚未成为正式 World Truth。",
+        "riding_destination_unreachable": "当前世界中没有通往该目的地的合法路线。",
+        "riding_already_at_destination": "你和 Dragon 已经在目的地。",
+        "riding_arrived": f"你骑着 {name} 抵达了目的地。",
+        "riding_dismounted": f"你从 {name} 背上下来，稳稳落在地面。",
+        "riding_already_dismounted": "你当前没有骑乘 Dragon。",
+        "riding_dragon_mismatch": "当前 Mounted State 与目标 Dragon 不一致。",
+    }
+    return messages.get(str(reason), "骑乘行动已经处理。")
+
+
 def _no_dragon_encounter_for_interaction() -> dict[str, Any]:
     return {
         "outcome": "none",
@@ -802,6 +875,7 @@ def create_app(
     action_provider_client: LLMProviderClient | None = None,
     dragon_provider_client: LLMProviderClient | None = None,
     location_provider_client: LLMProviderClient | None = None,
+    image_provider: SceneImageProvider | None = None,
     dragon_encounter_roll: float | None = None,
     persistence_adapter: PostgresPersistenceAdapter | None = None,
 ) -> FastAPI:
@@ -829,6 +903,39 @@ def create_app(
             create_session_factory(create_database_engine())
         )
         load_world = lambda: _load_postgres_world(persistence_adapter)
+
+    scene_image_provider = image_provider or create_scene_image_provider()
+
+    def with_scene_visual(
+        payload: dict[str, Any], *, player_id: str
+    ) -> dict[str, Any]:
+        trigger = visual_trigger(payload)
+        if trigger is None:
+            return {**payload, "scene_visual": None}
+        try:
+            visual_world = (
+                load_world()
+                if fixture_mode
+                else _load_postgres_world(
+                    persistence_adapter, player_id_override=player_id
+                )
+            )
+            world_summary = build_world_summary(visual_world)
+            visual = render_scene_visual(
+                action_result=payload,
+                world=world_summary,
+                provider=scene_image_provider,
+            )
+        except Exception:
+            visual = {
+                "status": "failed",
+                "trigger": trigger,
+                "provider": scene_image_provider.name,
+                "context_hash": None,
+                "camera": None,
+                "image_url": None,
+            }
+        return {**payload, "scene_visual": visual}
 
     application = FastAPI(
         title="Dragon World API",
@@ -1053,22 +1160,58 @@ def create_app(
                 player_input,
                 provider_client=action_provider_client,
             )
+            riding_operation = classify_riding_operation(structured_action)
+            if riding_operation is not None:
+                structured_action = route_grounded_riding_before_d2(
+                    player_id=player_id,
+                    structured_action=structured_action,
+                    persistence=persistence_adapter,
+                )
+            # Read one grounded Location snapshot before D2 writes its source
+            # event; D3 must not fall back to the authored-only registry.
+            runtime_skeleton = load_runtime_world_skeleton(
+                persistence_adapter, WORLD_SEED_PATH
+            )
             committed = commit_action_resolution(
                 player_id=player_id,
                 player_input=player_input,
                 structured_action=structured_action,
                 persistence=persistence_adapter,
+                world_skeleton=runtime_skeleton,
             )
             resolution = committed["resolution"]
             source_event_id = committed["interaction_event"]["event_id"]
             encounter_location_id = committed["player_state"]["current_location"]
 
+            dragon_riding = (
+                commit_riding_action(
+                    player_id=player_id,
+                    source_interaction_event_id=source_event_id,
+                    structured_action=structured_action,
+                    persistence=persistence_adapter,
+                )
+                if riding_operation is not None
+                else None
+            )
+            if dragon_riding is not None and not (
+                dragon_riding["status"] == "blocked"
+                and dragon_riding["operation"] == "mount"
+            ):
+                return with_scene_visual({
+                    "structured_action": structured_action,
+                    "resolution": resolution,
+                    "player_message": _dragon_riding_player_message(
+                        dragon_riding
+                    ),
+                    "source_event_id": source_event_id,
+                    "dragon_encounter": _no_dragon_encounter_for_interaction(),
+                    "dragon_interaction": None,
+                    "dragon_riding": dragon_riding,
+                    "location_discovery": None,
+                }, player_id=player_id)
+
             location_discovery: dict[str, Any] | None = None
             if is_location_discovery_eligible(structured_action, resolution):
-                runtime_skeleton = load_runtime_world_skeleton(
-                    persistence_adapter,
-                    WORLD_SEED_PATH,
-                )
                 locations = runtime_skeleton["locations"]
                 candidate = generate_location_candidate(
                     structured_action=structured_action,
@@ -1131,21 +1274,23 @@ def create_app(
                         commit_result=commit_result,
                         formal_result=formal_result,
                     )
-                return {
+                return with_scene_visual({
                     "structured_action": structured_action,
                     "resolution": resolution,
                     "player_message": dragon_interaction["player_message"],
                     "source_event_id": source_event_id,
                     "dragon_encounter": _no_dragon_encounter_for_interaction(),
                     "dragon_interaction": dragon_interaction,
+                    "dragon_riding": dragon_riding,
                     "location_discovery": None,
-                }
+                }, player_id=player_id)
 
             decision = decide_current_dragon_encounter(
                 player_id=player_id,
                 structured_action=structured_action,
                 resolution=resolution,
                 persistence=persistence_adapter,
+                world_skeleton=runtime_skeleton,
                 roll=dragon_encounter_roll,
             )
             persistence_adapter.record_dragon_encounter_decision(
@@ -1201,15 +1346,16 @@ def create_app(
                     if dragon_encounter["outcome"] == "none"
                     else f"{discovery_message} {player_message}"
                 )
-            return {
+            return with_scene_visual({
                 "structured_action": structured_action,
                 "resolution": resolution,
                 "player_message": player_message,
                 "source_event_id": source_event_id,
                 "dragon_encounter": dragon_encounter,
                 "dragon_interaction": None,
+                "dragon_riding": dragon_riding,
                 "location_discovery": location_discovery,
-            }
+            }, player_id=player_id)
         except HTTPException:
             raise
         except Exception as exc:

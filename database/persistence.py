@@ -64,6 +64,8 @@ _GROUNDED_DRAGON_INTERACTION_EVENTS = {
 }
 
 _DYNAMIC_LOCATION_REGISTRY_STATE_ID = "world.dynamic_locations.v1"
+_PLAYER_RIDING_STATE_PREFIX = "player."
+_PLAYER_RIDING_STATE_SUFFIX = ".riding.v1"
 
 
 class PostgresPersistenceAdapter:
@@ -217,6 +219,276 @@ class PostgresPersistenceAdapter:
                 if record is not None
                 else None
             )
+
+    def get_player_riding_state(self, player_id: str) -> dict[str, Any]:
+        """Read the persisted D6 mounted state for one Player."""
+
+        state_id = _player_riding_state_id(player_id)
+        with self._read_session() as session:
+            record = session.get(WorldStateEntry, state_id)
+            if record is None:
+                return {
+                    "version": 1,
+                    "player_id": player_id,
+                    "mounted_dragon_id": None,
+                }
+            return _player_riding_state_value(record.state_value, player_id)
+
+    def commit_dragon_riding(
+        self,
+        *,
+        player_id: str,
+        dragon_id: str,
+        source_interaction_event_id: str,
+        operation: str,
+        destination_id: str | None,
+        known_location_ids: set[str],
+        rideable_archetype_ids: set[str],
+    ) -> dict[str, Any]:
+        """Atomically unlock, mount, move, or dismount one grounded Dragon."""
+
+        if operation not in {"mount", "mounted_travel", "dismount"}:
+            raise PersistenceMappingError("Dragon Riding operation is invalid.")
+        if operation == "mounted_travel":
+            if destination_id not in known_location_ids:
+                raise PersistenceMappingError(
+                    "Mounted travel destination is not grounded."
+                )
+        elif destination_id is not None:
+            raise PersistenceMappingError(
+                "Only mounted travel may contain a destination."
+            )
+
+        with self._write_session() as session:
+            source = session.scalar(
+                select(InteractionEvent)
+                .where(InteractionEvent.event_id == source_interaction_event_id)
+                .with_for_update()
+            )
+            if source is None or source.event_type != "free_world_action":
+                raise PersistenceMappingError(
+                    "Dragon Riding source must be a free_world_action Event."
+                )
+            if source.player_id != player_id:
+                raise PersistenceMappingError(
+                    "Dragon Riding source belongs to another Player."
+                )
+            source_payload = dict(source.event_payload or {})
+            existing_result = source_payload.get("dragon_riding")
+            if existing_result is not None:
+                return _already_applied_dragon_riding(
+                    existing_result,
+                    player_id=player_id,
+                    dragon_id=dragon_id,
+                    operation=operation,
+                )
+
+            player_state = session.scalar(
+                select(PlayerState)
+                .where(PlayerState.player_id == player_id)
+                .with_for_update()
+            )
+            dragon = session.scalar(
+                select(Dragon)
+                .where(Dragon.dragon_id == dragon_id)
+                .with_for_update()
+            )
+            bond = session.scalar(
+                select(PlayerDragonBond)
+                .where(
+                    PlayerDragonBond.player_id == player_id,
+                    PlayerDragonBond.dragon_id == dragon_id,
+                )
+                .with_for_update()
+            )
+            if player_state is None or dragon is None:
+                raise PersistenceMappingError(
+                    "Dragon Riding Player or Dragon does not exist."
+                )
+
+            state_id = _player_riding_state_id(player_id)
+            riding_record = session.scalar(
+                select(WorldStateEntry)
+                .where(WorldStateEntry.state_id == state_id)
+                .with_for_update()
+            )
+            riding_state = (
+                {
+                    "version": 1,
+                    "player_id": player_id,
+                    "mounted_dragon_id": None,
+                }
+                if riding_record is None
+                else _player_riding_state_value(
+                    riding_record.state_value,
+                    player_id,
+                )
+            )
+
+            status = "success"
+            dragon_event: DragonEvent | None = None
+            mounted_id = riding_state["mounted_dragon_id"]
+            riding_unlocked = bool(bond and bond.riding_unlocked)
+
+            if operation == "mount":
+                if bond is None:
+                    status, reason_code = "blocked", "riding_bond_missing"
+                elif dragon.taming_state != "tamed":
+                    status, reason_code = "blocked", "riding_dragon_not_tamed"
+                elif player_state.current_location != dragon.current_location:
+                    status, reason_code = "blocked", "riding_location_mismatch"
+                elif dragon.archetype_id not in rideable_archetype_ids:
+                    status, reason_code = "blocked", "riding_archetype_not_rideable"
+                elif dragon.age_stage not in {"young_adult", "adult"}:
+                    status, reason_code = "blocked", "riding_dragon_not_mature"
+                elif bond.trust < 4 or bond.bond < 3 or bond.fear > 1:
+                    status, reason_code = (
+                        "blocked",
+                        "riding_bond_threshold_not_met",
+                    )
+                elif mounted_id not in {None, dragon_id}:
+                    status, reason_code = (
+                        "blocked",
+                        "another_dragon_already_mounted",
+                    )
+                else:
+                    if not bond.riding_unlocked:
+                        prior_acceptance = session.scalar(
+                            select(DragonEvent)
+                            .where(
+                                DragonEvent.player_id == player_id,
+                                DragonEvent.dragon_id == dragon_id,
+                                DragonEvent.event_type == "dragon_accepts_mount",
+                            )
+                            .order_by(DragonEvent.recorded_at)
+                            .limit(1)
+                        )
+                        if prior_acceptance is None:
+                            event_id = _stable_dragon_interaction_event_id(
+                                source_interaction_event_id,
+                                "dragon_accepts_mount",
+                            )
+                            prior_acceptance = DragonEvent(
+                                event_id=event_id,
+                                event_type="dragon_accepts_mount",
+                                dragon_id=dragon_id,
+                                player_id=player_id,
+                                source_interaction_event_id=(
+                                    source_interaction_event_id
+                                ),
+                                world_day=source.world_day,
+                                world_hour=source.world_hour,
+                                location_id=dragon.current_location,
+                                milestone_key="first_mount_acceptance",
+                                event_payload={
+                                    "trust": bond.trust,
+                                    "bond": bond.bond,
+                                    "fear": bond.fear,
+                                },
+                            )
+                            session.add(prior_acceptance)
+                            session.flush()
+                        bond.riding_unlocked = True
+                        bond.last_significant_event_id = prior_acceptance.event_id
+                        dragon_event = prior_acceptance
+                    riding_state["mounted_dragon_id"] = dragon_id
+                    riding_unlocked = True
+                    reason_code = (
+                        "riding_already_mounted"
+                        if mounted_id == dragon_id
+                        else "riding_mounted"
+                    )
+
+            elif operation == "mounted_travel":
+                if bond is None or not bond.riding_unlocked:
+                    status, reason_code = "blocked", "riding_not_unlocked"
+                elif mounted_id != dragon_id:
+                    status, reason_code = "blocked", "riding_not_mounted"
+                elif dragon.taming_state != "tamed":
+                    status, reason_code = "blocked", "riding_dragon_not_tamed"
+                elif player_state.current_location != dragon.current_location:
+                    status, reason_code = "blocked", "riding_location_mismatch"
+                elif destination_id == player_state.current_location:
+                    reason_code = "riding_already_at_destination"
+                else:
+                    assert destination_id is not None
+                    player_state.current_location = destination_id
+                    dragon.current_location = destination_id
+                    reason_code = "riding_arrived"
+                    prior_flight = session.scalar(
+                        select(DragonEvent)
+                        .where(
+                            DragonEvent.player_id == player_id,
+                            DragonEvent.dragon_id == dragon_id,
+                            DragonEvent.event_type == "first_shared_flight",
+                        )
+                        .order_by(DragonEvent.recorded_at)
+                        .limit(1)
+                    )
+                    if prior_flight is None:
+                        event_id = _stable_dragon_interaction_event_id(
+                            source_interaction_event_id,
+                            "first_shared_flight",
+                        )
+                        dragon_event = DragonEvent(
+                            event_id=event_id,
+                            event_type="first_shared_flight",
+                            dragon_id=dragon_id,
+                            player_id=player_id,
+                            source_interaction_event_id=(
+                                source_interaction_event_id
+                            ),
+                            world_day=source.world_day,
+                            world_hour=source.world_hour,
+                            location_id=destination_id,
+                            milestone_key="first_shared_flight",
+                            event_payload={"destination_id": destination_id},
+                        )
+                        session.add(dragon_event)
+                        session.flush()
+                        bond.last_significant_event_id = dragon_event.event_id
+
+            else:
+                if mounted_id is None:
+                    reason_code = "riding_already_dismounted"
+                elif mounted_id != dragon_id:
+                    status, reason_code = "blocked", "riding_dragon_mismatch"
+                else:
+                    riding_state["mounted_dragon_id"] = None
+                    reason_code = "riding_dismounted"
+
+            if status == "success":
+                if riding_record is None:
+                    riding_record = WorldStateEntry(
+                        state_id=state_id,
+                        state_value=dict(riding_state),
+                        source_event_type=source.event_type,
+                        source_event_id=source.event_id,
+                    )
+                    session.add(riding_record)
+                else:
+                    riding_record.state_value = dict(riding_state)
+                    riding_record.source_event_type = source.event_type
+                    riding_record.source_event_id = source.event_id
+
+            formal_result = {
+                "status": status,
+                "operation": operation,
+                "reason_code": reason_code,
+                "player_id": player_id,
+                "dragon_id": dragon_id,
+                "destination_id": destination_id,
+                "riding_unlocked": riding_unlocked,
+                "mounted_dragon_id": riding_state["mounted_dragon_id"],
+                "dragon_event_id": (
+                    dragon_event.event_id if dragon_event is not None else None
+                ),
+                "is_final": True,
+            }
+            source_payload["dragon_riding"] = formal_result
+            source.event_payload = source_payload
+            session.flush()
+            return _public_dragon_riding_result(formal_result)
 
     def list_committed_dragon_interactions(
         self,
@@ -1560,6 +1832,68 @@ def _stable_dragon_interaction_event_id(
         f"dragon-world:{event_type}:{source_interaction_event_id}",
     )
     return f"dragon_event_{value.hex}"
+
+
+def _player_riding_state_id(player_id: str) -> str:
+    if not isinstance(player_id, str) or not player_id.strip():
+        raise PersistenceMappingError("Riding State player_id is invalid.")
+    return f"{_PLAYER_RIDING_STATE_PREFIX}{player_id}{_PLAYER_RIDING_STATE_SUFFIX}"
+
+
+def _player_riding_state_value(value: Any, player_id: str) -> dict[str, Any]:
+    required = {"version", "player_id", "mounted_dragon_id"}
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise PersistenceMappingError("Player Riding State fields are invalid.")
+    if value.get("version") != 1 or value.get("player_id") != player_id:
+        raise PersistenceMappingError("Player Riding State identity is invalid.")
+    mounted_id = value.get("mounted_dragon_id")
+    if mounted_id is not None and (
+        not isinstance(mounted_id, str) or not mounted_id.strip()
+    ):
+        raise PersistenceMappingError("Mounted Dragon identity is invalid.")
+    return {
+        "version": 1,
+        "player_id": player_id,
+        "mounted_dragon_id": mounted_id,
+    }
+
+
+def _public_dragon_riding_result(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: value[key]
+        for key in (
+            "status",
+            "operation",
+            "reason_code",
+            "dragon_id",
+            "destination_id",
+            "riding_unlocked",
+            "mounted_dragon_id",
+            "dragon_event_id",
+        )
+    }
+
+
+def _already_applied_dragon_riding(
+    value: Any,
+    *,
+    player_id: str,
+    dragon_id: str,
+    operation: str,
+) -> dict[str, Any]:
+    if (
+        not isinstance(value, Mapping)
+        or value.get("is_final") is not True
+        or value.get("player_id") != player_id
+        or value.get("dragon_id") != dragon_id
+        or value.get("operation") != operation
+    ):
+        raise PersistenceMappingError(
+            "Source Interaction Event has another Dragon Riding result."
+        )
+    result = _public_dragon_riding_result(value)
+    result["status"] = "already_applied"
+    return result
 
 
 def _already_applied_dragon_interaction(
