@@ -248,3 +248,12 @@
   .formFooter { align-items: stretch; flex-direction: column; }
   .formFooter .primaryButton { width: 100%; }
 }
+.backButton {
+  display: block;
+  margin-top: 1rem;
+  padding: 0.6rem 0;
+  border: 0;
+  background: none;
+  color: #b4c8c3;
+  cursor: pointer;
+}

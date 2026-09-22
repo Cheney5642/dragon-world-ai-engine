@@ -57,9 +57,29 @@ export class DragonWorldBusinessError extends DragonWorldHttpError {
   }
 }
 
+export function activePlayerId(): string {
+  return typeof window === "undefined" ? "player_001" : (localStorage.getItem("dragon-world-player") ?? "player_001");
+}
+
+export function savedLives(): { id: string; label: string }[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem("dragon-world-lives") ?? "[]");
+    return Array.isArray(value) ? value.filter((item) => typeof item?.id === "string" && typeof item?.label === "string") : [];
+  } catch { return []; }
+}
+
+export function selectPlayer(playerId: string, label?: string): void {
+  localStorage.setItem("dragon-world-player", playerId);
+  if (label) {
+    const lives = savedLives().filter((life) => life.id !== playerId);
+    localStorage.setItem("dragon-world-lives", JSON.stringify([...lives, { id: playerId, label }]));
+  }
+}
+
 export async function getWorldState(signal?: AbortSignal): Promise<WorldState> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/world`, {
+    const response = await fetch(`${API_BASE_URL}/api/world?player_id=${encodeURIComponent(activePlayerId())}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -202,7 +222,12 @@ type JsonPostPath =
   | "/api/npc/interact"
   | "/api/npc/memory/commit"
   | "/api/npc/relationship/commit"
-  | "/api/player/identity/initialize";
+  | "/api/player/identity/initialize"
+  | "/api/player/create";
+
+export function createCharacter(request: { request_id: string; self_description: string }) {
+  return postJson<typeof request, { player_id: string; world: WorldState }>("/api/player/create", request);
+}
 
 async function postJson<TRequest, TResponse>(
   path: JsonPostPath,

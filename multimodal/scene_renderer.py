@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
 from database.connection import ENV_PATH
+
+
+logger = logging.getLogger(__name__)
 
 
 class SceneImageProvider(Protocol):
@@ -37,6 +42,8 @@ class DisabledSceneImageProvider:
 class DoubaoSceneImageProvider:
     model: str
     size: str
+    timeout: float
+    base_url: str
     _client: OpenAI
     name: str = "doubao"
     enabled: bool = True
@@ -46,6 +53,7 @@ class DoubaoSceneImageProvider:
             model=self.model,
             prompt=prompt,
             size=self.size,
+            response_format="url",
         )
         data = getattr(response, "data", None)
         image_url = getattr(data[0], "url", None) if data else None
@@ -74,11 +82,61 @@ def create_scene_image_provider() -> SceneImageProvider:
         "https://ark.cn-beijing.volces.com/api/v3",
     ).strip()
     size = os.getenv("ARK_IMAGE_SIZE", "1024x1024").strip() or "1024x1024"
+    timeout = float(os.getenv("ARK_IMAGE_TIMEOUT", "120").strip() or "120")
     return DoubaoSceneImageProvider(
         model=model,
         size=size,
-        _client=OpenAI(api_key=api_key, base_url=base_url, timeout=30.0),
+        timeout=timeout,
+        base_url=base_url,
+        _client=OpenAI(api_key=api_key, base_url=base_url, timeout=timeout),
     )
+
+
+def _provider_error_diagnostics(exc: Exception) -> dict[str, Any]:
+    """Extract safe Ark error metadata without credentials or request content."""
+
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    body = getattr(exc, "body", None)
+    error_body = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error_body, dict):
+        error_body = body if isinstance(body, dict) else {}
+
+    def header(name: str) -> str | None:
+        if headers is None or not hasattr(headers, "get"):
+            return None
+        value = headers.get(name)
+        return str(value) if value else None
+
+    status_code = getattr(exc, "status_code", None)
+    if status_code is None:
+        status_code = getattr(response, "status_code", None)
+    return {
+        "exception_type": type(exc).__name__,
+        "status_code": status_code,
+        "provider_code": error_body.get("code") or getattr(exc, "code", None),
+        "provider_message": error_body.get("message")
+        or getattr(exc, "message", None),
+        "request_id": getattr(exc, "request_id", None)
+        or error_body.get("request_id")
+        or header("x-request-id")
+        or header("x-tt-logid"),
+    }
+
+
+def _safe_base_url(value: Any) -> str | None:
+    """Keep endpoint identity while dropping credentials, query, and fragment."""
+
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname or ""
+        if parsed.port is not None:
+            host = f"{host}:{parsed.port}"
+        return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+    except (TypeError, ValueError):
+        return "<invalid>"
 
 
 def visual_trigger(action_result: Mapping[str, Any]) -> str | None:
@@ -102,6 +160,9 @@ def visual_trigger(action_result: Mapping[str, Any]) -> str | None:
         "direct_encounter",
     }:
         return "dragon_encounter"
+    update = action_result.get("story_update")
+    if isinstance(update, Mapping) and update.get("status") == "recorded" and update.get("event"):
+        return "personal_story_event"
     return None
 
 
@@ -181,6 +242,15 @@ def render_scene_visual(
     if trigger is None:
         return None
     context = build_visual_context(trigger=trigger, world=world)
+    story_event = (action_result.get("story_update") or {}).get("event")
+    if story_event:
+        # Semantic wishes/claims are deliberately not sent to the image model.
+        context["event"] = {
+            "event_id": story_event["event_id"], "event_type": story_event["event_type"],
+            "location_id": story_event["location"]["id"],
+            "visible_npcs": [entity for entity in story_event["involved_entities"]
+                             if entity["id"] in {npc["id"] for npc in world.get("nearby_npcs", [])}],
+        }
     prompt = build_visual_prompt(context)
     context_hash = hashlib.sha256(
         json.dumps(context, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -191,11 +261,28 @@ def render_scene_visual(
         "context_hash": context_hash,
         "camera": context["camera"],
         "image_url": None,
+        "scene_description": context,
+        "image_prompt": prompt,
     }
     if not provider.enabled:
         return {**base, "status": "disabled"}
     try:
         image_url = provider.generate(prompt)
-    except Exception:
+    except Exception as exc:
+        diagnostics = _provider_error_diagnostics(exc)
+        logger.error(
+            "scene_image_provider_failed exception_type=%s http_status=%s "
+            "ark_error_code=%s ark_error_message=%r request_id=%s model=%s "
+            "size=%s timeout=%s base_url=%s",
+            diagnostics["exception_type"],
+            diagnostics["status_code"],
+            diagnostics["provider_code"],
+            diagnostics["provider_message"],
+            diagnostics["request_id"],
+            getattr(provider, "model", None),
+            getattr(provider, "size", None),
+            getattr(provider, "timeout", None),
+            _safe_base_url(getattr(provider, "base_url", None)),
+        )
         return {**base, "status": "failed"}
     return {**base, "status": "generated", "image_url": image_url}

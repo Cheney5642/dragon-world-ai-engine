@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
@@ -11,6 +12,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
+from jsonschema import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.npc_api import register_npc_routes
@@ -42,6 +44,7 @@ from identity.commit import (
     commit_initial_identity,
 )
 from identity.grounding import IdentityGroundingError, ground_identity
+from identity.origin import interpret_origin
 from identity.interpreter import (
     IdentityInterpretationError,
     interpret_identity,
@@ -123,6 +126,12 @@ class IdentityInitializeResponse(BaseModel):
     display_name: str | None
     identity_initialized: bool
     identity_summary: str
+
+
+class CharacterCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: uuid.UUID
+    self_description: str = Field(min_length=1, max_length=4000)
 
 
 def _identity_error_detail(
@@ -341,6 +350,17 @@ def _load_postgres_world(
             }
         )
         world_state["player"] = runtime_player
+        # Authored NPC knowledge may reference the original Player. Keep that
+        # public entity distinct from a newly created life; never transfer history.
+        world_state["known_players"] = {}
+        seed_player_id = seed_player.get("id")
+        if seed_player_id != player_id and isinstance(seed_player_id, str):
+            original = persistence.get_player(seed_player_id)
+            if original is not None:
+                world_state["known_players"][seed_player_id] = {
+                    "id": seed_player_id, "name": original["name"],
+                    "species": original["species"], "occupation": original["occupation"],
+                }
 
         seed_npcs = world_state.get("npcs")
         if not isinstance(seed_npcs, dict):
@@ -906,9 +926,44 @@ def create_app(
 
     scene_image_provider = image_provider or create_scene_image_provider()
 
+    def story_view(player_id: str) -> dict[str, Any] | None:
+        if fixture_mode or persistence_adapter is None:
+            return None
+        story = persistence_adapter.get_personal_story(player_id)
+        if story is None:
+            return None
+        names = {npc["id"]: npc["name"] for npc in load_runtime_world_skeleton(
+            persistence_adapter, WORLD_SEED_PATH)["npcs"].values()}
+        return {
+            "origin": story["origin"], "thread": story["thread"], "memories": story["memories"],
+            "recent_events": story["events"][-12:],
+            "active_event": next((event for event in reversed(story["events"]) if event["status"] == "open"), None),
+            "npc_relationships": [{**row, "npc_name": names.get(row["npc_id"], row["npc_id"])}
+                                  for row in persistence_adapter.list_player_npc_relationships(player_id)],
+            "world_changes": [memory for memory in story["memories"] if memory["world_changes"]],
+        }
+
     def with_scene_visual(
         payload: dict[str, Any], *, player_id: str
     ) -> dict[str, Any]:
+        if not fixture_mode:
+            try:
+                if persistence_adapter.get_personal_story(player_id) is not None:
+                    current_world = build_world_summary(_load_postgres_world(
+                        persistence_adapter, player_id_override=player_id))
+                    update = persistence_adapter.commit_personal_story(
+                        player_id=player_id, source_event_id=payload["source_event_id"],
+                        world=current_world, result=payload,
+                    )
+                    payload = {**payload, "story_update": update}
+                    if update:
+                        payload["player_message"] += "\n" + update["message"]
+            except Exception as exc:
+                # The base action was committed; do not invite the client to replay it.
+                # Do not log raw SQL parameters, player text, or provider credentials.
+                logger.error("story_commit_failed exception_type=%s", type(exc).__name__)
+                payload = {**payload, "story_update": {"status": "failed", "event": None,
+                    "message": "世界行动已完成，但个人故事记录失败；请勿为此重复执行行动。"}}
         trigger = visual_trigger(payload)
         if trigger is None:
             return {**payload, "scene_visual": None}
@@ -958,13 +1013,57 @@ def create_app(
         return {"status": "ok", "service": "dragon-world-api"}
 
     @application.get("/api/world")
-    def get_world() -> dict[str, Any]:
+    def get_world(player_id: str | None = None) -> dict[str, Any]:
         try:
-            return build_world_summary(load_world())
+            loaded = (_load_postgres_world(persistence_adapter, player_id_override=player_id)
+                      if player_id and not fixture_mode else load_world())
+            summary = build_world_summary(loaded)
+            story = story_view(summary["player"]["player_id"])
+            if story is not None:
+                summary["personal_story"] = story
+                summary["known_locations"] = [
+                    {"id": key, "name": value["name"]} for key, value in loaded["locations"].items()
+                ]
+            return summary
         except HTTPException:
             raise
         except Exception as exc:
             raise _pipeline_http_error(exc) from exc
+
+    @application.post("/api/player/create")
+    def create_character(request: CharacterCreateRequest) -> dict[str, Any]:
+        if fixture_mode or persistence_adapter is None:
+            raise HTTPException(status_code=503, detail="Character creation requires PostgreSQL.")
+        description = request.self_description.strip()
+        if not description:
+            raise HTTPException(status_code=400, detail="Describe your character first.")
+        player_id = f"player_poc_{request.request_id.hex}"
+        try:
+            existing = persistence_adapter.get_player_state(player_id)
+            if existing is not None:
+                if (existing["identity_context"] or {}).get("self_description") != description:
+                    raise HTTPException(status_code=409, detail="This request already created a different character.")
+                return {"player_id": player_id, "world": get_world(player_id)}
+            character = interpret_origin(description, provider_client=identity_provider_client)
+            skeleton = load_runtime_world_skeleton(persistence_adapter, WORLD_SEED_PATH)
+            persistence_adapter.create_story_player(
+                player_id=player_id, description=description, character=character,
+                location_id=skeleton["player"]["current_location"],
+            )
+            return {"player_id": player_id, "world": get_world(player_id)}
+        except HTTPException:
+            raise
+        except (LLMProviderError, IdentityInterpretationError, IdentityGroundingError,
+                ValidationError, ValueError) as exc:
+            logger.error("character_creation_failed exception_type=%s", type(exc).__name__)
+            raise HTTPException(status_code=502, detail="角色理解失败，请稍后重试；没有创建半成品角色。") from exc
+
+    @application.get("/api/story/{player_id}")
+    def get_story(player_id: str) -> dict[str, Any]:
+        story = story_view(player_id)
+        if story is None:
+            raise HTTPException(status_code=404, detail="This player has no personal story.")
+        return story
 
     @application.post(
         "/api/player/identity/initialize",
@@ -1436,6 +1535,8 @@ def create_app(
         ),
         provider_client=npc_provider_client,
         persistence_adapter=None if fixture_mode else persistence_adapter,
+        load_player_world=(None if fixture_mode else lambda player_id: _load_postgres_world(
+            persistence_adapter, player_id_override=player_id)),
     )
 
     return application

@@ -1,3 +1,5 @@
+import type { PersonalStory } from "@/types/story";
+
 export interface InventoryItem {
   id?: string;
   name?: string;
@@ -72,6 +74,8 @@ export interface WorldState {
   nearby_npcs: NPC[];
   nearby_dragons: Dragon[];
   riding: RidingState;
+  personal_story?: PersonalStory;
+  known_locations?: { id: string; name: string }[];
 }
 
 export interface RidingState {

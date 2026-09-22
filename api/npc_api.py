@@ -349,6 +349,7 @@ def register_npc_routes(
     relationship_store_path: Path | None = None,
     provider_client: StructuredOutputProvider | LLMProviderClient | None = None,
     persistence_adapter: PostgresPersistenceAdapter | None = None,
+    load_player_world: Callable[[str], dict[str, Any]] | None = None,
 ) -> None:
     """Register thin HTTP adapters without copying any Frozen domain rules."""
 
@@ -363,7 +364,7 @@ def register_npc_routes(
     )
     def interact_with_npc(request: NpcInteractRequest) -> dict[str, Any]:
         try:
-            world_state = load_world()
+            world_state = load_player_world(request.player_id) if load_player_world else load_world()
             _validate_entity_ids(world_state, request.npc_id, request.player_id)
             memory_store_document = (
                 None
@@ -430,7 +431,7 @@ def register_npc_routes(
         event = copy.deepcopy(request.interaction_event)
         try:
             validate_interaction_event(event)
-            world_state = load_world()
+            world_state = load_player_world(event["player_id"]) if load_player_world else load_world()
             _validate_entity_ids(
                 world_state,
                 event["npc_id"],

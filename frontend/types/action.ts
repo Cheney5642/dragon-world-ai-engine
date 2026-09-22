@@ -1,4 +1,5 @@
 import type { Dragon, Player } from "@/types/world";
+import type { StoryUpdate } from "@/types/story";
 
 export type FreeActionFamily =
   | "travel"
@@ -147,6 +148,8 @@ export interface SceneVisualResult {
   context_hash: string | null;
   camera: "first_person" | "first_person_dragon_back" | null;
   image_url: string | null;
+  scene_description?: Record<string, unknown>;
+  image_prompt?: string;
 }
 
 export interface ActionExecuteResponse {
@@ -159,6 +162,7 @@ export interface ActionExecuteResponse {
   dragon_riding: DragonRidingResult | null;
   location_discovery: LocationDiscoveryResult | null;
   scene_visual: SceneVisualResult | null;
+  story_update?: StoryUpdate | null;
 }
 
 export type ActionKind =

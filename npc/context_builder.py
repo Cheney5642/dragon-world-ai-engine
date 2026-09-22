@@ -193,6 +193,8 @@ def build_npc_context(
             known_entity = player
         else:
             known_entity = npc_states.get(known_id)
+            if known_entity is None:
+                known_entity = world_state.get("known_players", {}).get(known_id)
         if known_entity is None:
             raise NpcContextError(
                 f"NPC Profile {npc_id} references unknown Entity id: {known_id}"

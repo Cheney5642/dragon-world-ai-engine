@@ -33,8 +33,8 @@ from scripts import execute_action, interpret_action, validate_action
 from scripts.interpret_action import SAVE_PATH
 
 
-def file_hash() -> str:
-    return hashlib.sha256(SAVE_PATH.read_bytes()).hexdigest()
+def file_hash(path: Path = SAVE_PATH) -> str | None:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
 async def asgi_request(
@@ -173,6 +173,16 @@ def movement_resources(
 
 
 class WebApiSmokeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.save_path = Path(self.directory.name) / "world.json"
+        seed_path = Path(__file__).resolve().parents[1] / "data" / "world_seed.json"
+        world = json.loads(seed_path.read_text(encoding="utf-8"))
+        world["player"]["species"] = "human"
+        self.save_path.write_text(json.dumps(world), encoding="utf-8")
+        self.fixture_app = create_app(self.save_path)
+
     def test_health(self) -> None:
         status, payload = asyncio.run(asgi_request("/health"))
         self.assertEqual(status, 200)
@@ -182,9 +192,9 @@ class WebApiSmokeTests(unittest.TestCase):
         )
 
     def test_world_summary_is_read_only_and_public(self) -> None:
-        before = file_hash()
-        status, payload = asyncio.run(asgi_request("/api/world"))
-        after = file_hash()
+        before = file_hash(self.save_path)
+        status, payload = asyncio.run(asgi_request("/api/world", application=self.fixture_app))
+        after = file_hash(self.save_path)
 
         self.assertEqual(status, 200)
         self.assertEqual(before, after)
@@ -196,6 +206,7 @@ class WebApiSmokeTests(unittest.TestCase):
                 "current_location",
                 "nearby_npcs",
                 "nearby_dragons",
+                "riding",
             },
         )
         self.assertEqual(
@@ -273,11 +284,11 @@ class WebApiSmokeTests(unittest.TestCase):
         self.assertNotIn("proposed_mutations", request_schema["properties"])
 
     def test_action_preview_runs_three_layers_and_is_read_only(self) -> None:
-        world_state = interpret_action.load_current_world()
+        world_state = interpret_action.load_current_world(self.save_path)
         raw_input = "Go to the connected location."
         resources, target_id = movement_resources(world_state, raw_input)
-        before = file_hash()
-        fixture_app = create_app(SAVE_PATH)
+        before = file_hash(self.save_path)
+        fixture_app = self.fixture_app
         with patch("api.app._load_resources", return_value=resources):
             status, payload = asyncio.run(
                 asgi_request(
@@ -294,13 +305,13 @@ class WebApiSmokeTests(unittest.TestCase):
             payload["execution_plan"]["proposed_mutations"][0]["new_value"],
             target_id,
         )
-        self.assertEqual(before, file_hash())
+        self.assertEqual(before, file_hash(self.save_path))
 
     def test_action_commit_revalidates_raw_input_on_a_temporary_save(self) -> None:
         production_before = file_hash()
         with tempfile.TemporaryDirectory() as directory:
             temporary_save = Path(directory) / "current_world.json"
-            shutil.copy2(SAVE_PATH, temporary_save)
+            shutil.copy2(self.save_path, temporary_save)
             world_state = interpret_action.load_current_world(temporary_save)
             raw_input = "Go to the connected location."
             resources, target_id = movement_resources(world_state, raw_input)

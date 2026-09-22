@@ -9,6 +9,8 @@ import {
   DragonWorldNetworkError,
   getWorldState,
   initializePlayerIdentity,
+  createCharacter,
+  selectPlayer,
 } from "@/lib/api";
 import { UI_COPY } from "@/lib/ui-copy";
 import type { WorldState } from "@/types/world";
@@ -20,6 +22,8 @@ type OpeningStep = "intro" | "identity_input";
 interface WorldOpeningProps {
   playerId: string;
   onWorldReady: (world: WorldState) => void;
+  newLife?: boolean;
+  onCancel?: () => void;
 }
 
 function identityErrorMessage(error: unknown): string {
@@ -39,8 +43,9 @@ function identityErrorMessage(error: unknown): string {
   return UI_COPY.opening.genericError;
 }
 
-export function WorldOpening({ playerId, onWorldReady }: WorldOpeningProps) {
+export function WorldOpening({ playerId, onWorldReady, newLife = false, onCancel }: WorldOpeningProps) {
   const submitInFlightRef = useRef(false);
+  const requestIdRef = useRef<string | null>(null);
   const [step, setStep] = useState<OpeningStep>("intro");
   const [selfDescription, setSelfDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -67,6 +72,13 @@ export function WorldOpening({ playerId, onWorldReady }: WorldOpeningProps) {
     setError(null);
 
     try {
+      if (newLife) {
+        requestIdRef.current ??= crypto.randomUUID();
+        const created = await createCharacter({ request_id: requestIdRef.current, self_description: description });
+        selectPlayer(created.player_id, created.world.personal_story?.origin.identity ?? "我的人生");
+        onWorldReady(created.world);
+        return;
+      }
       const result = await initializePlayerIdentity({
         player_id: playerId,
         self_description: description,
@@ -124,6 +136,7 @@ export function WorldOpening({ playerId, onWorldReady }: WorldOpeningProps) {
             <span>{UI_COPY.opening.enter}</span>
             <span aria-hidden="true">→</span>
           </button>
+          {onCancel ? <button type="button" className={styles.backButton} onClick={onCancel}>返回当前人生</button> : null}
         </section>
       </main>
     );
@@ -157,6 +170,7 @@ export function WorldOpening({ playerId, onWorldReady }: WorldOpeningProps) {
             value={selfDescription}
             onChange={(event) => {
               setSelfDescription(event.target.value);
+              requestIdRef.current = null;
               setError(null);
             }}
             placeholder={UI_COPY.opening.placeholder}
@@ -181,6 +195,7 @@ export function WorldOpening({ playerId, onWorldReady }: WorldOpeningProps) {
               {error}
             </p>
           ) : null}
+          {onCancel ? <button className={styles.backButton} type="button" disabled={submitting} onClick={onCancel}>返回当前人生</button> : null}
         </form>
       </section>
     </main>

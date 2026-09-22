@@ -1,68 +1,218 @@
-# Dragon World — AI World Engine v0.1
+# Dragon World — AI Native World Engine Prototype
 
-Dragon World 是一款以自由自然语言行动驱动的持久化开放世界原型。玩家可以提出任何行动；语言模型负责理解与表达，World Engine 根据证据、规则与 PostgreSQL 中的状态决定什么真正发生。当前 Demo 世界是 Dragon Isles。
+Dragon World 是一个由自然语言驱动的持久化开放世界原型。玩家不是从固定职业或任务列表开始，而是用一句话创造身份、目标和人生方向；之后每次自由行动都会经过结构化理解、世界规则裁决和 PostgreSQL 状态提交，逐步形成只属于这个玩家的故事。
 
-**Dragon World v0.1 — FINAL FROZEN.** D1–D8 与最终 Browser E2E 已完成；后续能力属于独立的 v0.2 范围，不包含在本版本中。
+> **版本状态**
+>
+> - `v0.1.0`：已冻结并位于 GitHub `main`，最终提交为 `090b83c`。
+> - `v0.2 PoC`：当前 `main` 的产品展示版本，包含 AI Character Origin、Personal Narrative、真实场景生图和地点专属画面；它是 PoC 里程碑，尚未创建独立版本标签。
+
+![Dragon World — Skeld](frontend/public/locations/skeld.jpg)
+
+## What This Prototype Proves
+
+Dragon World 想验证的不是“让 AI 多写几段 RPG 文案”，而是一个更完整的 AI Native World Loop：
+
+```text
+Player Creation
+  → World Understanding
+  → Free Exploration
+  → Grounded Dynamic Event
+  → Personal Narrative Memory
+  → Future Consequence
+  → Scene Visual Generation
+```
+
+核心原则是：
+
+> Player can say or attempt anything; the world decides what becomes true.
+>
+> 玩家可以说任何话、尝试任何事；世界决定什么能够成立、什么真正发生。
+
+LLM 负责理解自由输入和生成叙事表达，但不能直接修改 World Truth。正式事实必须经过规则校验和 Runtime 提交后，才能进入 PostgreSQL 持久世界。
+
+## Latest Local PoC Capabilities
+
+### AI Character Origin
+
+玩家不需要选择“战士 / 法师 / 猎人”。可以直接输入：
+
+```text
+我是一个失去家族荣耀的年轻骑士，希望寻找传说中的龙。
+```
+
+系统会生成并保存：
+
+- Identity / Background
+- Personality
+- Goal
+- Narrative Direction
+- 未被世界证实的自述声明
+
+玩家可以创建和切换多段独立人生，已有 v0.1 Demo 世界不会被覆盖。
+
+### Natural Language World Interaction
+
+- 自由自然语言行动与 Structured Action（结构化动作）。
+- World Grounding（世界落地）：地点、NPC、Dragon 和行动目标必须对应正式世界事实。
+- Action Validation / Resolution：玩家提出行动不等于行动必然成功。
+- `/api/action/execute` 返回结构化结果、玩家反馈和 Developer View 数据。
+
+### Persistent World
+
+- PostgreSQL 是正式 Runtime 唯一事实来源。
+- 玩家位置、Dragon 状态、Bond、Taming、Riding、NPC Memory、Relationship、动态地点和个人故事均可持久化读取。
+- 浏览器刷新或 Backend 重启后，通过 `/api/world` 恢复正式状态。
+- 不使用 JSON Runtime Dual Write，不把 LLM 输出直接当作数据库事实。
+
+### NPC and Dragon Runtime
+
+- NPC 对话、Memory、Relationship 与 Knowledge Boundary。
+- `Trust != Truth`：NPC 信任玩家不等于接受玩家的错误陈述。
+- Dynamic Dragon Encounter。
+- Dragon Interaction、Anti-Farming、Bond / Taming。
+- Dragon Riding：门槛校验、骑乘解锁、Mount、Mounted Travel、Dismount。
+- 普通观察、休息和交流不会错误进入 Riding Branch。
+
+### Controlled Dynamic Location Discovery
+
+- Runtime 可以在符合条件时创建受控动态地点。
+- 动态地点会进入 PostgreSQL Location Registry，并参与正式 travel/read-back。
+- 当前 Demo 已包含动态地点“雾蚀凹湾”。
+
+### Personal Narrative Engine
+
+- 保存的是“玩家人生轨迹”，不是聊天记录。
+- 玩家身份、目标、已完成行动、NPC Relationship 和历史选择共同影响后续事件。
+- 故事事件带有 reason、evidence、choices 和 consequences，可解释“为什么发生”。
+- 分享见闻或保留记录会形成不同 Narrative Branch。
+- 人生故事 UI 使用可折叠卷轴展示，默认不会占据主要游戏视野。
+
+### Multimodal Scene Generation
+
+- World Truth → Scene Description → Structured Image Prompt → Image Provider。
+- 当前视觉触发包括 Dragon Encounter、Dynamic Location Discovery、Mount、Mounted Arrival 和 Personal Story Event。
+- 火山方舟 Seedream 的真实图片调用与非空 `image_url` 已人工验证成功。
+- 图片 Provider 超时或失败时保持 Graceful Fallback；文字玩法仍返回 HTTP 200。
+- 图片只是 Presentation Artifact，不反写 World State。
+
+### Location-specific Game Art
+
+主视图根据 `current_location` 自动切换地点专属背景。实时事件生成图片具有更高展示优先级；没有事件图片时，始终保留地点画面。
+
+| Stormcliff | Old Ruins |
+| --- | --- |
+| ![Stormcliff](frontend/public/locations/stormcliff.jpg) | ![Old Ruins](frontend/public/locations/old-ruins.jpg) |
+| 永久受到风暴与巨浪冲击的黑色海崖。 | 建造者未知、被群山和迷雾包围的古代遗迹。 |
+
+| Whispering Woods | 雾蚀凹湾 |
+| --- | --- |
+| ![Whispering Woods](frontend/public/locations/whispering-woods.jpg) | ![雾蚀凹湾](frontend/public/locations/mist-eroded-cove.jpg) |
+| 古老巨木、野生生物与龙类传闻共存的森林。 | 被寒雾和海风侵蚀、隐藏于黑色海岸中的动态地点。 |
+
+所有地点图均为项目生成的原创黑暗中世纪史诗奇幻环境图，不包含具体人物、Dragon 或阵营徽记，避免静态背景伪造实时 World Truth。
 
 ## Architecture
 
 ```text
-Player / Next.js Presentation
-  → FastAPI Interaction Layer (/api/action/execute)
-  → World Runtime / Orchestration
-  → World Rules and grounded D2 resolution
-  → NPC Runtime / Dragon Runtime / D5 Location Discovery
-  → PostgreSQL Persistent World (only Runtime source of truth)
-  → /api/world read-back → Presentation / D7 Scene Renderer
+Next.js Presentation
+  ├─ Character Origin / Life Selection
+  ├─ Natural Language Action
+  ├─ Personal Story Scroll
+  └─ World + Scene Visual Read-back
+                ↓
+FastAPI Interaction Layer
+                ↓
+Structured Action / Grounding / Resolution
+                ↓
+World Orchestrator
+  ├─ NPC Runtime
+  ├─ Dragon Runtime
+  ├─ Location Discovery
+  ├─ Riding Runtime
+  └─ Personal Narrative Director
+                ↓
+PostgreSQL Persistent World
+                ↓
+Scene Visual Renderer → Ark Seedream / Graceful Fallback
 ```
 
-自然语言解释不能直接写入 World Truth。D2 提交正式 Interaction Event；NPC、Dragon、Location 与 Riding 的专属规则只在符合条件时提交状态。D7 图片是从已提交世界状态构建的第一人称渲染结果，不反写事实。旧 JSON 是迁移/备份产物，不参与正式 Runtime 写入。
+### AI Boundary
 
-## Implemented Demo Capabilities
+| Component | Responsibility |
+| --- | --- |
+| LLM | 理解玩家输入、提出候选解释、生成自然语言表达 |
+| Rule Engine / Runtime | 判断行动是否合法、什么事实能够改变、哪些事件可以提交 |
+| PostgreSQL | 保存正式 World Truth 和个人人生轨迹 |
+| Image Provider | 根据已提交事实渲染场景，不修改世界状态 |
 
-- 自由身份与自然语言行动；受控的预览、提交及世界状态读取。
-- NPC 对话及正式 Memory / Relationship 边界；不把玩家自述当作客观事实。
-- 动态 Dragon Encounter、Bond / Taming 和具有反刷取规则的 Dragon 互动。
-- D5 受控动态地点发现与 PostgreSQL 地点注册表 read-back。
-- D6 Dragon Riding：明确骑乘意图、门槛验证、首次骑乘解锁、骑乘移动、下龙。骑乘状态存于 `world_state_entries`，骑乘解锁存于 `player_dragon_bonds`；玩家和龙同一事务移动。D4 已驯服不等于可骑乘：首次解锁需要 trust ≥ 4、bond ≥ 3、fear ≤ 1、符合体型和年龄条件且双方同地点；未达门槛时只能通过正式互动推进羁绊。普通休息、观察等非骑乘行动不会进入 D6。
-- D7 关键事件的第一人称静态 Scene Visual：地点发现、正式 Dragon Encounter、上龙、骑乘抵达。未配置图片供应商或供应商出错时返回可见降级状态，文字玩法保持可用。没有视频生成。
-- 中文 World Shell：当前地点、附近 NPC / Dragon、关系和骑乘状态、世界日志、自然语言行动、Scene Visual 与结构化 Developer View。
+## Demo Flow
 
-## Dragon World v0.1 Demo Flow
-
-约 3–5 分钟，使用 `player_001` 和现有 PostgreSQL 世界，不重置已驯服的 Kael。具体位置、Bond 和 Riding State 以 `/api/world` 当前 read-back 为准，不为演示覆盖持久状态。
-
-1. 在浏览器查看 `/api/world` 读出的当前位置、NPC、Kael 与羁绊；用自由语言探索，观察 Structured Action、Grounding（与真实对象/地点绑定）和 World Log。
-2. 查看已注册的动态地点“雾蚀凹湾”，在可达规则内前往或从当前位置 read-back；正式地点和位置都由 PostgreSQL 决定。
-3. 在 Kael 所在位置观察或与它互动，展示 Encounter、Bond / Taming 边界。Kael 已驯服，不为演示伪造再次驯服。
-4. 若骑乘尚未解锁，先通过合法且非重复的 D4 互动达到门槛；输入“我骑上 Kael”。首次成功会记录 `dragon_accepts_mount`；已经解锁时按现有状态正常上龙。
-5. 输入明确的骑乘移动命令前往当前可达地点；玩家与龙必须原子地一起抵达。动态地点旅行也遵守地点连接规则。场景图片若未配置则显示降级提示，玩法继续。
-6. 输入“我从 Kael 背上下来”，随后输入“我在雾蚀凹湾停下来休息片刻”；休息应是普通叙事行动，`dragon_riding=null`。刷新浏览器、重启用户自己的 Backend 并读取 `/api/world`，确认骑乘状态、羁绊和地点仍一致。
-
-该故事展示的是 LLM 理解/表达与 World Engine 决定世界事实之间的职责分离，不承诺每句自由输入都成功。
+1. 打开网页，用自然语言创建任意身份。
+2. 查看系统生成的 Identity、Background、Goal 和 Narrative Direction。
+3. 输入自由行动，例如“我离开村庄，前往北方森林寻找龙的踪迹”。
+4. 查看 Structured Action、Resolution 和 Grounded World Effect。
+5. 与 NPC 或 Dragon 互动，观察 Relationship / Bond 的受控变化。
+6. 在关键故事节点查看 Personal Narrative Event 和场景图片。
+7. 前往 Skeld、Stormcliff、Old Ruins、Whispering Woods 或雾蚀凹湾，观察主画面自动切换。
+8. 展开“我的人生故事”卷轴，查看 Identity、Narrative Thread、World Changes、NPC Relationship 和 Recent Events。
+9. 刷新浏览器或重启 Backend，通过 `/api/world` 验证持久化结果。
 
 ## Local Run
 
-Python 虚拟环境安装 `requirements.txt`；在项目根目录由 `.env.example` 创建本地 `.env`，设置 PostgreSQL `DATABASE_URL` 与所需文本模型配置，并运行 `alembic upgrade head`。不要提交 `.env` 或密钥。现有 Demo World 需要正式 Recovery Seed，不能靠启动服务自动伪造历史。
+Python 虚拟环境安装 `requirements.txt`；从 `.env.example` 创建本地 `.env`，设置 PostgreSQL `DATABASE_URL` 与所需 Provider 配置，然后执行：
 
-用户负责长期运行 Backend 和 Frontend：
-
-```text
-Backend:  .venv/bin/python -m uvicorn api.app:app --env-file .env --host 127.0.0.1 --port 8000
-Frontend: cd frontend && npm install && npm run dev
+```bash
+alembic upgrade head
+.venv/bin/python -m uvicorn api.app:app --env-file .env --host 127.0.0.1 --port 8000
 ```
 
-浏览器打开 `http://localhost:3000`。前端 API 地址配置见 `frontend/.env.local.example`。
+另一个终端启动前端：
 
-图片是可选功能：在本地 `.env` 中配置 `IMAGE_PROVIDER=doubao`、`ARK_IMAGE_MODEL`、`ARK_IMAGE_SIZE`，并使用已有的 `ARK_API_KEY` / `ARK_BASE_URL`。不配置图片模型或 Key 时状态为 `disabled`；供应商失败为 `failed`，均不会撤销游戏行动。图片结果仅在当前 Action API Response 中返回远程 URL 与少量 metadata，刷新后不会从数据库重建该图片；世界事实照常从 PostgreSQL 重建。v0.1 已验证 Provider Contract、模拟渲染与 disabled graceful fallback；**当前本机未完成人工真实图片 API 生成验收**。
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## Validation and Boundaries
+浏览器打开 `http://localhost:3000`。不要提交 `.env`、数据库密码或 Provider Key。
 
-自动验证入口为 `python -m unittest`、`frontend` 下的 `npm run lint` / `npm run build`，以及 `git diff --check`。数据库集成测试会创建并清理专属测试玩家；不要把测试数据混入 Demo 世界。旧 D5 测试有“动态地点注册表起初为空”的 fixture 假设，不适用于已恢复的正式 Demo 数据；此限制不代表 D5 Runtime 回归。
+### Optional Image Provider
 
-## Known Limitations and Deferred Scope
+本地 `.env` 可配置：
 
-- 当前主要 Demo Dragon 是 Kael；这不是完整的多龙内容库。
-- 真实图片 API 生成效果尚未在当前本机人工验收；只确认渲染契约、模拟结果和 Provider disabled/failure 降级。
-- 不包含视频生成、Multiplayer、完整 Combat / Economy / Quest System 或无限动态地图。
-- 没有第二套 World Engine，也不允许图片模型反写世界事实。上述扩展均延后讨论；本次 Freeze **不开始 v0.2**。
+```text
+IMAGE_PROVIDER=doubao
+ARK_IMAGE_MODEL=<your-seedream-model>
+ARK_IMAGE_SIZE=1024x1024
+ARK_IMAGE_TIMEOUT=120
+```
+
+`ARK_API_KEY` 与 `ARK_BASE_URL` 只保存在本地环境。Provider 未配置时状态为 `disabled`；调用异常时状态为 `failed`，两种情况都不会撤销已经完成的世界行动。
+
+## Validation
+
+主要验证入口：
+
+```bash
+python -m unittest
+cd frontend && npm run lint
+cd frontend && npm run build
+git diff --check
+```
+
+v0.1 已完成 Final Browser E2E。当前 v0.2 PoC 已人工验证角色创建、个人故事、Dragon Interaction、真实 Seedream 生图、图片失败降级和地点背景展示；本次提交前同时执行 Python 与 Web 定向回归。
+
+## Known Limitations
+
+- 当前是 AI 产品与世界引擎 PoC，不是完整商业游戏。
+- 主要 Demo Dragon 仍是 Kael；动态遭遇中可出现其他 Dragon，例如 Voryn。
+- 图片 URL 是当前 Action Response 的展示结果，尚未建立 Visual Artifact 持久化图库。
+- 同步生图会增加关键 Action 的响应时间；当前通过独立图片超时和 Graceful Fallback 控制影响。
+- 不包含视频生成；只预留后续 Video Generation Interface 方向。
+- 不包含 Multiplayer、完整 Combat、Economy 或传统 Quest System。
+- 当前地点专属背景覆盖已知的 5 个地点；未来新生成的动态地点需要新的视觉资产或通用动态背景策略。
+
+## Repository Status
+
+`v0.1.0` 标签继续作为冻结稳定基线；GitHub `main` 包含当前 v0.2 PoC 展示能力。v0.2 仍是产品验证版本，不代表商业级完整游戏或新的冻结标签。

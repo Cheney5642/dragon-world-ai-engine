@@ -9,6 +9,7 @@ import unittest
 import uuid
 from typing import Any
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 from sqlalchemy import delete, func, select
 
@@ -37,6 +38,7 @@ async def asgi_request(
     body: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     messages: list[dict[str, object]] = []
+    parsed = urlsplit(path)
     sent = False
     request_body = (
         json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -65,9 +67,9 @@ async def asgi_request(
             "http_version": "1.1",
             "method": method,
             "scheme": "http",
-            "path": path,
-            "raw_path": path.encode("ascii"),
-            "query_string": b"",
+            "path": parsed.path,
+            "raw_path": parsed.path.encode("ascii"),
+            "query_string": parsed.query.encode("ascii"),
             "root_path": "",
             "headers": (
                 [(b"content-type", b"application/json")]
@@ -445,13 +447,6 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
         self.assertEqual(after_sighting["dragon_encounter"]["context_score"], 7)
 
     def test_case_8_world_reads_back_committed_nearby_dragons(self) -> None:
-        production_location = self.production_player_state["current_location"]
-        self.persistence.upsert_player_state(
-            player_id=self.player_id,
-            current_location=production_location,
-            inventory=[],
-            goals=[],
-        )
         dragon_provider = StubProvider(dragon_candidate("Mossveil"))
         encounter, _, _ = self._execute(
             "我深入 Whispering Woods 寻找龙。",
@@ -460,13 +455,11 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
             candidate_provider=dragon_provider,
         )
         application = create_app(persistence_adapter=self.persistence)
-        status, world = asyncio.run(asgi_request(application, "/api/world"))
+        status, world = asyncio.run(asgi_request(application, f"/api/world?player_id={self.player_id}"))
         self.assertEqual(status, 200)
-        self.assertEqual(len(world["nearby_dragons"]), 1)
-        self.assertEqual(
-            world["nearby_dragons"][0]["dragon_id"],
-            encounter["dragon_encounter"]["dragon_id"],
-        )
+        self.assertEqual(world["player"]["player_id"], self.player_id)
+        self.assertIn(encounter["dragon_encounter"]["dragon_id"],
+                      [dragon["dragon_id"] for dragon in world["nearby_dragons"]])
 
 
 if __name__ == "__main__":

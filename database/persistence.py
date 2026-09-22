@@ -1575,7 +1575,12 @@ class PostgresPersistenceAdapter:
 
         key = (relationship["player_id"], relationship["npc_id"])
         with self._write_session() as session:
+            story_doc = session.get(WorldStateEntry, f"player.{key[0]}.story.v1")
+            if story_doc is not None:
+                session.scalar(select(PlayerState).where(PlayerState.player_id == key[0]).with_for_update())
+                session.refresh(story_doc)
             record = session.get(NpcRelationship, key)
+            before = _npc_relationship_record(record) if record is not None else None
             if record is None:
                 record = NpcRelationship(
                     player_id=relationship["player_id"],
@@ -1594,6 +1599,24 @@ class PostgresPersistenceAdapter:
                 record.applied_event_ids = list(relationship["applied_event_ids"])
                 record.last_source_event_id = relationship["last_source_event_id"]
             session.flush()
+            if story_doc is not None:
+                source = session.get(InteractionEvent, relationship["last_source_event_id"])
+                state = copy.deepcopy(story_doc.state_value)
+                source_key = f"npc:{relationship['last_source_event_id']}"
+                if source is not None and source.player_id == key[0] and source_key not in state["processed_sources"]:
+                    state["processed_sources"].append(source_key)
+                    state["memories"].append({
+                        "sequence": len(state["memories"]) + 1, "kind": "npc_relationship",
+                        "summary": f"与 {key[1]} 的正式互动改变了关系：信任 {record.trust}，态度 {record.attitude}。",
+                        "location_id": source.location_id, "source_event_id": source.event_id,
+                        "world_changes": {"npc_relationship": {
+                            "before": before, "after": _npc_relationship_record(record),
+                        }},
+                    })
+                    story_doc.state_value = state
+                    story_doc.source_event_type = "npc_dialogue"
+                    story_doc.source_event_id = source.event_id
+                    story_doc.updated_at = datetime.now(timezone.utc)
             return _npc_relationship_record(record)
 
     def insert_interaction_event(
@@ -1653,6 +1676,164 @@ class PostgresPersistenceAdapter:
                 if record is not None
                 else None
             )
+
+    def create_story_player(
+        self, *, player_id: str, description: str, character: Mapping[str, Any],
+        location_id: str,
+    ) -> None:
+        """Create one new life atomically; never reset an existing Demo Player."""
+        from core.personal_story import initial_story
+
+        with self._write_session() as session:
+            # Serializes retries of the same browser request without a new table.
+            from sqlalchemy import text
+            session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": player_id})
+            existing = session.get(PlayerState, player_id)
+            if existing is not None:
+                if (existing.identity_context or {}).get("self_description") != description:
+                    raise IdentityAlreadyInitializedError("Request id belongs to a different origin.")
+                return
+            context = copy.deepcopy(character["identity_context"])
+            origin = copy.deepcopy(character["origin"])
+            species = context["identity_facets"].get("narrative_species")
+            session.add(Player(
+                player_id=player_id, name=character["display_name"],
+                species=species if species in {"human", "dragon"} else None,
+                occupation=None, background=None, traits=list(character["traits"]),
+            ))
+            session.flush()
+            session.add(PlayerState(
+                player_id=player_id, current_location=location_id, inventory=[],
+                goals=[origin["goal"]], identity_context=context,
+            ))
+            session.add(WorldStateEntry(
+                state_id=f"player.{player_id}.story.v1",
+                state_value=initial_story(origin, location_id),
+            ))
+
+    def get_personal_story(self, player_id: str) -> dict[str, Any] | None:
+        """Read the PoC narrative document without initializing or backfilling it."""
+        with self._read_session() as session:
+            record = session.get(WorldStateEntry, f"player.{player_id}.story.v1")
+            return copy.deepcopy(record.state_value) if record is not None else None
+
+    def list_player_npc_relationships(self, player_id: str) -> list[dict[str, Any]]:
+        with self._read_session() as session:
+            return [_npc_relationship_record(row) for row in session.scalars(
+                select(NpcRelationship).where(NpcRelationship.player_id == player_id)
+                .order_by(NpcRelationship.npc_id)
+            )]
+
+    def commit_personal_story(
+        self, *, player_id: str, source_event_id: str,
+        world: Mapping[str, Any], result: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        """Atomically record a story choice, grounded sharing, memory and relation.
+
+        D2 has already committed. This transaction never replays or undoes D2.
+        No LLM/provider call occurs while holding these locks.
+        """
+        from core.personal_story import advance_story
+        from npc.memory import build_memory_preview
+        from npc.relationship import create_initial_relationship, evaluate_relationship_change
+
+        with self._write_session() as session:
+            player = session.scalar(select(PlayerState).where(
+                PlayerState.player_id == player_id).with_for_update())
+            document = session.get(WorldStateEntry, f"player.{player_id}.story.v1")
+            if document is None:
+                return None
+            if player is None or player.current_location != world["current_location"]["id"]:
+                raise PersistenceMappingError("Player moved before Story commit.")
+            source = session.get(InteractionEvent, source_event_id)
+            _validate_dragon_encounter_source(source, player_id)
+            payload = source.event_payload or {}
+            if any(payload.get(key) != result.get(key) for key in ("structured_action", "resolution")):
+                raise PersistenceMappingError("Story action does not match its persisted source.")
+            previous = document.state_value
+            if source_event_id in previous["processed_sources"]:
+                return {"status": "already_applied", "event": next((event for event in previous["events"]
+                        if event["source_event_id"] == source_event_id), None), "message": "这次行动已经记录。"}
+            relations = list(session.scalars(select(NpcRelationship).where(
+                NpcRelationship.player_id == player_id).with_for_update()))
+            relation_map = {row.npc_id: row for row in relations}
+            registry_names = {npc["id"]: npc["name"] for npc in world.get("nearby_npcs", [])}
+            relationship_view = [
+                {**_npc_relationship_record(row), "npc_name": registry_names.get(row.npc_id, row.npc_id)}
+                for row in relations
+            ]
+            state, sharing = advance_story(
+                previous, source=_interaction_event_record(source), world=dict(world),
+                result=dict(result), relationships=relationship_view,
+            )
+            if sharing:
+                npc_id = sharing["npc"]["id"]
+                npc = session.scalar(select(Npc).where(Npc.npc_id == npc_id).with_for_update())
+                evidence = session.get(InteractionEvent, sharing["evidence_event_id"])
+                if npc is None or npc.current_location != player.current_location:
+                    raise PersistenceMappingError("Sharing requires a co-located NPC.")
+                if evidence is None or evidence.player_id != player_id:
+                    raise PersistenceMappingError("Sharing requires the player's own recorded observation.")
+                observed = (evidence.event_payload or {}).get("resolution", {})
+                observed_location = observed.get("state_changes", {}).get("current_location", evidence.location_id)
+                if observed.get("status") != "success" or observed_location != sharing["observed_location"]:
+                    raise PersistenceMappingError("Shared observation is not grounded.")
+                event_id = f"npc_event_{uuid.uuid5(uuid.NAMESPACE_URL, 'share:' + source_event_id).hex}"
+                # Only the verifiable sharing act is evidence, never arbitrary claims
+                # embedded in the player's input. Preserve the raw input in D2.
+                event = {
+                    "event_id": event_id, "event_type": "npc_dialogue", "npc_id": npc_id,
+                    "player_id": player_id, "world_context": {
+                        "world_day": source.world_day, "world_hour": source.world_hour,
+                        "location_id": player.current_location,
+                    },
+                    "player_utterance": f"分享自己在 {sharing['observed_location']} 的亲历观察记录。",
+                    "npc_response": {"response_type": "reaction", "speech": sharing["speech"]},
+                    "topic": "verified_shared_result", "player_claims": [],
+                    "memory_candidate": True, "relationship_signal": "potential_positive",
+                }
+                row = relation_map.get(npc_id)
+                current = ({key: getattr(row, key) for key in (
+                    "npc_id", "player_id", "familiarity", "trust", "attitude"
+                )} if row else create_initial_relationship(npc_id, player_id))
+                preview = evaluate_relationship_change(current, event)
+                session.add(InteractionEvent(
+                    event_id=event_id, event_type="npc_dialogue", player_id=player_id, npc_id=npc_id,
+                    world_day=source.world_day, world_hour=source.world_hour, location_id=player.current_location,
+                    player_utterance=event["player_utterance"], npc_response=event["npc_response"],
+                    topic=event["topic"], player_claims=[], memory_candidate=True,
+                    relationship_signal="potential_positive", event_payload={
+                        "source_action_id": source_event_id, "observation_event_id": evidence.event_id,
+                    },
+                ))
+                session.flush()
+                proposed = preview["proposed_relationship"]
+                if row is None:
+                    row = NpcRelationship(**proposed, applied_event_ids=[event_id], last_source_event_id=event_id)
+                    session.add(row)
+                else:
+                    for key in ("familiarity", "trust", "attitude"):
+                        setattr(row, key, proposed[key])
+                    row.applied_event_ids = [*row.applied_event_ids, event_id]
+                    row.last_source_event_id = event_id
+                memory = build_memory_preview(event)
+                memory["content"] = f"玩家在本次交流中分享了亲历 {sharing['observed_location']} 的观察记录。"
+                session.add(NpcMemory(
+                    memory_id=memory["memory_id"], npc_id=npc_id, player_id=player_id,
+                    source_event_id=event_id, memory_type=memory["memory_type"], content=memory["content"],
+                    epistemic_status=memory["epistemic_status"], world_day=source.world_day,
+                    world_hour=source.world_hour, location_id=player.current_location,
+                    created_from_topic=memory["created_from_topic"], memory_metadata=memory.get("metadata"),
+                ))
+                change = {"npc_id": npc_id, "before": current, "after": proposed, "source_event_id": event_id}
+                state["events"][-1]["consequences"]["npc_relationship"] = change
+                state["memories"][-1]["world_changes"]["npc_relationship"] = change
+                state["events"][-1]["evidence_refs"].append(event_id)
+            document.state_value = state
+            document.source_event_type = "free_world_action"
+            document.source_event_id = source_event_id
+            document.updated_at = datetime.now(timezone.utc)
+            return copy.deepcopy(state["last_update"])
 
 
 def _validate_dragon_encounter_source(

@@ -11,6 +11,8 @@ import {
   executeAction,
   getWorldState,
   interactWithNpc,
+  savedLives,
+  selectPlayer,
 } from "@/lib/api";
 import {
   displayLabel,
@@ -19,13 +21,28 @@ import {
 } from "@/lib/ui-copy";
 import type { ActionExecuteResponse } from "@/types/action";
 import type { NpcInteractionResponse } from "@/types/npc";
-import type { Dragon, InventoryEntry, NPC, WorldState } from "@/types/world";
+import type { Dragon, InventoryEntry, Location, NPC, WorldState } from "@/types/world";
 
 import { WorldOpening } from "./world-opening";
+import { PersonalStoryPanel } from "./personal-story";
 import styles from "./world-shell.module.css";
 
 function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`;
+}
+
+const LOCATION_SCENE_IMAGES: Record<string, string> = {
+  skeld_village: "/locations/skeld.jpg",
+  stormcliff: "/locations/stormcliff.jpg",
+  old_ruins: "/locations/old-ruins.jpg",
+  whispering_woods: "/locations/whispering-woods.jpg",
+};
+
+function locationSceneImage(location: Location): string | null {
+  const authoredImage = LOCATION_SCENE_IMAGES[location.id];
+  if (authoredImage) return authoredImage;
+  if (location.name === "雾蚀凹湾") return "/locations/mist-eroded-cove.jpg";
+  return null;
 }
 
 function formatInventoryItem(item: InventoryEntry): string {
@@ -539,6 +556,7 @@ export function WorldShell() {
   const [npcSending, setNpcSending] = useState(false);
   const [npcError, setNpcError] = useState<string | null>(null);
   const [selectedNpcId, setSelectedNpcId] = useState<string | null>(null);
+  const [creatingLife, setCreatingLife] = useState(false);
 
   const nearbyNpcs = worldState?.nearby_npcs ?? [];
   const selectedNpc =
@@ -547,9 +565,12 @@ export function WorldShell() {
   useEffect(() => {
     const controller = new AbortController();
 
-    getWorldState(controller.signal)
+    const initialWorld = localStorage.getItem("dragon-world-player")
+      ? getWorldState(controller.signal) : Promise.resolve(null);
+    initialWorld
       .then((state) => {
-        setWorldState(state);
+        if (state) setWorldState(state);
+        else setCreatingLife(true);
         setLoading(false);
       })
       .catch((error: unknown) => {
@@ -565,6 +586,18 @@ export function WorldShell() {
     setLoading(true);
     setFailed(false);
     setRetryKey((value) => value + 1);
+  }
+
+  function resetSessionDisplay() {
+    setActionResult(null);
+    setNpcInteraction(null);
+    setSelectedNpcId(null);
+    setWorldLogMessage(null);
+    setActionInput("");
+    setNpcUtterance("");
+    setActionError(null);
+    setNpcError(null);
+    setConsoleMessage(UI_COPY.action.initialStatus);
   }
 
   function selectNpc(npcId: string, focusDialogue = false) {
@@ -589,7 +622,7 @@ export function WorldShell() {
   async function handleActionSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input = actionInput.trim();
-    if (!input || actionRunning || actionInFlightRef.current) return;
+    if (!input || actionRunning || npcSending || actionInFlightRef.current || !worldState) return;
 
     actionInFlightRef.current = true;
     setActionRunning(true);
@@ -599,7 +632,7 @@ export function WorldShell() {
 
     try {
       const result = await executeAction({
-        player_id: "player_001",
+        player_id: worldState.player.player_id,
         player_input: input,
       });
       setActionResult(result);
@@ -610,7 +643,8 @@ export function WorldShell() {
       setConsoleMessage(result.player_message);
       if (
         result.structured_action.action_family === "interact" &&
-        result.resolution.domain_route === "npc"
+        result.resolution.domain_route === "npc" &&
+        result.story_update?.event?.event_type !== "knowledge_shared"
       ) {
         const matchedNpc = resolveNearbyNpcTarget(
           result.structured_action.target,
@@ -618,7 +652,18 @@ export function WorldShell() {
         );
         if (matchedNpc) {
           selectNpc(matchedNpc.id, true);
-          setConsoleMessage(UI_COPY.action.npcReady(matchedNpc.name));
+          setNpcSending(true);
+          try {
+            const interaction = await interactWithNpc({ npc_id: matchedNpc.id,
+              player_id: worldState.player.player_id, utterance: input });
+            setNpcInteraction(interaction);
+            await persistNpcMutationsSilently(interaction);
+            setWorldState(await getWorldState());
+            setConsoleMessage(interaction.npc_response?.speech ?? UI_COPY.action.npcReady(matchedNpc.name));
+          } catch (error: unknown) {
+            setNpcError(actionErrorMessage(error, UI_COPY.errors.npcFallback));
+            setConsoleMessage("行动已记录，但 NPC 暂未回应。可以在对话框继续交流。");
+          } finally { setNpcSending(false); }
         } else {
           setConsoleMessage(UI_COPY.action.npcTargetUnavailable);
         }
@@ -643,7 +688,7 @@ export function WorldShell() {
   async function handleNpcSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const utterance = npcUtterance.trim();
-    if (!utterance || npcSending || !selectedNpc) return;
+    if (!utterance || npcSending || actionRunning || !selectedNpc || !worldState) return;
 
     setNpcSending(true);
     setNpcError(null);
@@ -652,11 +697,12 @@ export function WorldShell() {
     try {
       const interaction = await interactWithNpc({
         npc_id: selectedNpc.id,
-        player_id: "player_001",
+        player_id: worldState.player.player_id,
         utterance,
       });
       setNpcInteraction(interaction);
       await persistNpcMutationsSilently(interaction);
+      setWorldState(await getWorldState());
     } catch (error: unknown) {
       setNpcError(actionErrorMessage(error, UI_COPY.errors.npcFallback));
     } finally {
@@ -665,19 +711,28 @@ export function WorldShell() {
   }
 
   if (loading) return <LoadingState />;
-  if (failed || !worldState) {
-    return <ErrorState onRetry={handleRetry} />;
-  }
-  if (!worldState.player.identity_initialized) {
+  if (creatingLife || (worldState && !worldState.player.identity_initialized)) {
     return (
       <WorldOpening
-        playerId={worldState.player.player_id}
-        onWorldReady={setWorldState}
+        playerId={worldState?.player.player_id ?? "player_001"}
+        newLife
+        onCancel={worldState?.player.identity_initialized ? () => setCreatingLife(false) : undefined}
+        onWorldReady={(state) => {
+          resetSessionDisplay();
+          setWorldState(state);
+          setCreatingLife(false);
+        }}
       />
     );
   }
+  if (failed || !worldState) {
+    return <><ErrorState onRetry={handleRetry} /><div className={styles.lifeToolbar}>
+      <button type="button" onClick={() => { setFailed(false); setCreatingLife(true); }}>保留原存档，开启新人生</button>
+    </div></>;
+  }
 
   const { player, world, current_location: location } = worldState;
+  const locationBackground = locationSceneImage(location);
   const locationMood =
     location.description ??
     LOCATION_MOOD_COPY[location.id] ??
@@ -712,6 +767,31 @@ export function WorldShell() {
           </div>
         </div>
       </header>
+
+      <nav className={styles.lifeToolbar} aria-label="角色与人生">
+        <p>以自己的身份进入世界，让选择留下痕迹。</p>
+        <label>当前人生
+          <select value={player.player_id} disabled={actionRunning || npcSending} onChange={(event) => {
+            selectPlayer(event.target.value);
+            resetSessionDisplay();
+            handleRetry();
+          }}>
+            <option value="player_001">原有 Demo 世界</option>
+            {savedLives().map((life) => <option key={life.id} value={life.id}>{life.label}</option>)}
+          </select>
+        </label>
+        <button type="button" disabled={actionRunning || npcSending} onClick={() => setCreatingLife(true)}>开启新人生 ＋</button>
+      </nav>
+
+      {worldState.personal_story ? <PersonalStoryPanel
+        story={worldState.personal_story} busy={actionRunning || npcSending}
+        visual={actionResult?.scene_visual} update={actionResult?.story_update}
+        onChoose={(text) => {
+          handleActionInputChange(text);
+          document.getElementById("action-input")?.focus();
+          document.getElementById("action-input")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }}
+      /> : null}
 
       <div className={styles.dashboard}>
         <aside className={`${styles.panel} ${styles.playerPanel}`}>
@@ -806,6 +886,16 @@ export function WorldShell() {
           </div>
 
           <div className={styles.scene} data-location={location.id}>
+            {locationBackground ? (
+              // Generated project asset; plain img keeps the scene layer predictable.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className={styles.locationBackdrop}
+                src={locationBackground}
+                alt=""
+                aria-hidden="true"
+              />
+            ) : null}
             {actionResult?.scene_visual?.status === "generated" &&
             actionResult.scene_visual.image_url ? (
               // Provider URLs are ephemeral presentation references, not Next.js image assets.
@@ -821,10 +911,12 @@ export function WorldShell() {
                 {UI_COPY.sceneVisual.loading}
               </div>
             ) : null}
-            <div className={styles.skyGlow} />
-            <div className={styles.mistBack} />
-            <div className={styles.distantLand} />
-            <div className={styles.nearLand} />
+            {!locationBackground ? <>
+              <div className={styles.skyGlow} />
+              <div className={styles.mistBack} />
+              <div className={styles.distantLand} />
+              <div className={styles.nearLand} />
+            </> : null}
             <div className={styles.sceneGrain} />
             <div className={styles.sceneBadge}>
               <span>{displayLabel(location.type)}</span>
@@ -1019,11 +1111,11 @@ export function WorldShell() {
               }}
               placeholder={UI_COPY.npcDialogue.placeholder(selectedNpc?.name)}
               rows={2}
-              disabled={npcSending || !selectedNpc}
+              disabled={npcSending || actionRunning || !selectedNpc}
             />
             <button
               type="submit"
-              disabled={!npcUtterance.trim() || npcSending || !selectedNpc}
+              disabled={!npcUtterance.trim() || npcSending || actionRunning || !selectedNpc}
             >
               <span>
                 {npcSending
@@ -1049,6 +1141,9 @@ export function WorldShell() {
         </div>
         <form onSubmit={handleActionSubmit}>
           <label htmlFor="action-input">{UI_COPY.action.label}</label>
+          {worldState.known_locations ? <p className={styles.knownLocations}>
+            已知地点：{worldState.known_locations.map((place) => place.name).join(" · ")}
+          </p> : null}
           <div className={styles.actionRow}>
             <textarea
               id="action-input"
@@ -1056,11 +1151,11 @@ export function WorldShell() {
               onChange={(event) => handleActionInputChange(event.target.value)}
               placeholder={UI_COPY.action.placeholder}
               rows={2}
-              disabled={actionRunning}
+              disabled={actionRunning || npcSending}
             />
             <button
               type="submit"
-              disabled={!actionInput.trim() || actionRunning}
+              disabled={!actionInput.trim() || actionRunning || npcSending}
             >
               <span>
                 {actionRunning

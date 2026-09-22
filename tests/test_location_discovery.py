@@ -148,6 +148,13 @@ class LocationDiscoveryTests(unittest.TestCase):
         self.player_id = f"test_d5_{self.token}"
         self.event_id = f"test_d5_event_{self.token}"
         self.skeleton = load_world_skeleton()
+        self.initial_locations = copy.deepcopy(self.persistence.get_dynamic_location_registry()["locations"])
+        with self.session_factory() as session:
+            registry = session.get(WorldStateEntry, DYNAMIC_LOCATION_REGISTRY_STATE_ID)
+            self.initial_registry_metadata = (
+                (registry.source_event_type, registry.source_event_id, registry.updated_at)
+                if registry is not None else None
+            )
         self.explore = action(
             "explore",
             "沿着北侧探索未知区域",
@@ -197,6 +204,8 @@ class LocationDiscoveryTests(unittest.TestCase):
                 }
                 if value["locations"]:
                     registry.state_value = value
+                    if self.initial_registry_metadata and (registry.source_event_id or "").startswith(self.event_id):
+                        registry.source_event_type, registry.source_event_id, registry.updated_at = self.initial_registry_metadata
                 else:
                     session.delete(registry)
             session.execute(
@@ -247,7 +256,7 @@ class LocationDiscoveryTests(unittest.TestCase):
         self.assertFalse(
             is_location_discovery_eligible(structured, resolution("known_travel"))
         )
-        self.assertEqual(self.persistence.get_dynamic_location_registry()["locations"], {})
+        self.assertEqual(self.persistence.get_dynamic_location_registry()["locations"], self.initial_locations)
 
     def test_case_2_open_exploration_generates_grounded_candidate(self) -> None:
         provider = StubProvider(self.explore, self.candidate)
@@ -337,7 +346,7 @@ class LocationDiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(first["location"]["location_id"], second["location"]["location_id"])
         self.assertEqual(second["status"], "already_applied")
-        self.assertEqual(len(self.persistence.get_dynamic_location_registry()["locations"]), 1)
+        self.assertEqual(len(self.persistence.get_dynamic_location_registry()["locations"]), len(self.initial_locations) + 1)
 
     def test_api_execute_and_world_readback_use_dynamic_registry(self) -> None:
         provider = StubProvider(self.explore, self.candidate)
