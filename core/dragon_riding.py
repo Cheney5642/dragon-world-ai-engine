@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from core.display_names import dragon_aliases
 from core.free_action_resolution import (
     _is_location_reachable,
     _resolve_destination,
@@ -134,8 +135,10 @@ def _resolve_dragon(
         target = structured_action.get("target")
         if isinstance(target, str) and target.strip() and mounted is not None:
             if target.strip().casefold() not in {
-                str(mounted["dragon_id"]).casefold(),
-                str(mounted["name"]).casefold(),
+                alias.casefold()
+                for alias in dragon_aliases(
+                    mounted.get("dragon_id"), mounted.get("name")
+                )
             }:
                 return None
         return mounted
@@ -152,22 +155,26 @@ def _resolve_dragon(
         if wanted
         and wanted
         in {
-            str(dragon.get("dragon_id") or "").casefold(),
-            str(dragon.get("name") or "").casefold(),
+            alias.casefold()
+            for alias in dragon_aliases(
+                dragon.get("dragon_id"), dragon.get("name")
+            )
         }
     ]
     if len(matches) == 1:
         return matches[0]
     action_text = _action_text(structured_action)
-    named = [
-        dragon
-        for dragon in nearby
-        if isinstance(dragon.get("name"), str)
-        and re.search(
-            rf"(?<![a-z0-9]){re.escape(dragon['name'].casefold())}(?![a-z0-9])",
-            action_text,
-        )
-    ]
+    named = []
+    for dragon in nearby:
+        aliases = dragon_aliases(dragon.get("dragon_id"), dragon.get("name"))
+        if any(
+            re.search(
+                rf"(?<![a-z0-9]){re.escape(alias.casefold())}(?![a-z0-9])",
+                action_text,
+            )
+            for alias in aliases
+        ):
+            named.append(dragon)
     if not wanted and len(named) == 1:
         return named[0]
     if not wanted and len(nearby) == 1 and (

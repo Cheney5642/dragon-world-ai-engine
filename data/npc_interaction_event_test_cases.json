@@ -96,7 +96,7 @@
       },
       "expected": {
         "topic": "relationship_declaration",
-        "claim_contains": "declares Astrid to be his wife",
+        "claim_contains": "declares 阿斯特丽德 to be his wife",
         "memory_candidate": false,
         "relationship_signal_allowed": [
           "none",

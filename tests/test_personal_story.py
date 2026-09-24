@@ -143,6 +143,29 @@ class PersonalStoryTests(unittest.TestCase):
         self.assertIn("Grounded visual context", result["scene_visual"]["image_prompt"])
         self.assertEqual(len(self.story(player_id)["recent_events"]), 1)
 
+    def test_deferred_visual_returns_action_before_polling_result(self):
+        player_id = self.create()
+        image_provider = StubImageProvider()
+        application = self.application(image_provider)
+        status, result = self.request(
+            "/api/action/execute",
+            {
+                "player_id": player_id,
+                "player_input": "我观察周围",
+                "defer_visual": True,
+            },
+            application=application,
+        )
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["scene_visual"]["status"], "pending")
+        visual_status, visual = self.request(
+            f"/api/visual/{result['source_event_id']}",
+            application=application,
+        )
+        self.assertEqual(visual_status, 200)
+        self.assertEqual(visual["status"], "generated")
+        self.assertTrue(visual["image_url"])
+
     def test_disabled_image_and_rest_have_no_riding_side_effect(self):
         player_id = self.create()
         result = self.execute(player_id, "我观察周围")

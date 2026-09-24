@@ -23,6 +23,7 @@ from database.persistence import (
     PostgresPersistenceAdapter,
     _stable_dragon_interaction_event_id,
 )
+from core.food_ecology import FOODS, favorite_food_kind
 
 
 def action(
@@ -318,6 +319,7 @@ class DragonBondPersistenceTests(unittest.TestCase):
         event = self.persistence.get_interaction_event(source_id)
         assert event is not None
         payload = dict(event["event_payload"])
+        taming_state = self._dragon().taming_state
         payload["dragon_interaction"] = {
             "dragon_id": dragon_id or self.dragon_id,
             "player_id": player_id or self.player_id,
@@ -330,8 +332,8 @@ class DragonBondPersistenceTests(unittest.TestCase):
             "positive_category": category,
             "anti_farming": anti_farming,
             "applied_deltas": {"familiarity": 1, "trust": 0, "fear": 0, "bond": 0},
-            "before": {"familiarity": 0, "trust": 0, "fear": 0, "bond": 0, "taming_state": "wild"},
-            "after": {"familiarity": 1, "trust": 0, "fear": 0, "bond": 0, "taming_state": "wild"},
+            "before": {"familiarity": 0, "trust": 0, "fear": 0, "bond": 0, "taming_state": taming_state},
+            "after": {"familiarity": 1, "trust": 0, "fear": 0, "bond": 0, "taming_state": taming_state},
             "taming_transition": None,
             "significant_event_id": None,
             "positive_categories": [category] if category is not None else [],
@@ -436,6 +438,49 @@ class DragonBondPersistenceTests(unittest.TestCase):
         )
         event = self.persistence.get_interaction_event(food["source_interaction_event_id"])
         self.assertEqual(event["event_payload"]["dragon_interaction"]["anti_farming"], "full")
+        self.assertEqual(self.persistence.get_player_state(self.player_id)["inventory"], [])
+
+    def test_favorite_meat_boosts_bond_and_consumes_only_that_item(self) -> None:
+        favorite = favorite_food_kind({
+            "dragon_id": self.dragon_id,
+            "current_location": "stormcliff",
+            "archetype_id": "balanced_wild",
+        })
+        food_name = FOODS[favorite][0]
+        inventory = [
+            {"item_id": "other_food", "category": "food", "food_kind": "fish", "name": "鲜鱼", "quantity": 1},
+            {"item_id": "favorite_food", "category": "food", "food_kind": favorite, "name": food_name, "quantity": 1},
+        ]
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="stormcliff",
+            inventory=inventory,
+            goals=[],
+        )
+        result = self._commit(
+            action("interact", f"我把{food_name}喂给 D4C Dragon"),
+            suffix="favorite_food",
+        )
+        self.assertEqual(result["applied_deltas"]["trust"], 2)
+        self.assertEqual(result["applied_deltas"]["bond"], 1)
+        self.assertEqual(
+            self.persistence.get_player_state(self.player_id)["inventory"],
+            [inventory[0]],
+        )
+
+    def test_older_named_fish_can_be_offered_and_consumed_atomically(self) -> None:
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="stormcliff",
+            inventory=[{"id": "carried_fish", "name": "一条大鱼", "quantity": 1}],
+            goals=[],
+        )
+        result = self._commit(
+            action("interact", "把大鱼放在 D4C Dragon 面前，后退等它取食"),
+            suffix="older_named_fish",
+        )
+        self.assertEqual(result["status"], "applied")
+        self.assertEqual(result["applied_deltas"]["trust"], 1)
         self.assertEqual(self.persistence.get_player_state(self.player_id)["inventory"], [])
 
     def test_case_08_threat_creates_negative_bond_and_clamps(self) -> None:
@@ -784,6 +829,71 @@ class DragonBondPersistenceTests(unittest.TestCase):
             self.assertEqual(after[key], before[key])
         self.assertNotIn("dragon_interaction", before)
         self.assertTrue(after["dragon_interaction"]["is_final"])
+
+    def test_personal_taming_readback_never_uses_global_dragon_state(self) -> None:
+        self._set_dragon_state("tamed")
+        result = self._commit(
+            action(
+                "interact",
+                "我小心靠近 D4C Dragon，展示自己没有威胁",
+                method="缓慢靠近并放低姿态",
+            ),
+            suffix="personal_taming_readback",
+        )
+        self.assertEqual(result["taming_state"], "wild")
+        self.assertEqual(
+            self.persistence.get_player_dragon_taming_state(
+                player_id=self.player_id,
+                dragon_id=self.dragon_id,
+            ),
+            "wild",
+        )
+
+    def test_fast_demo_sequence_reaches_personal_tamed_state(self) -> None:
+        steps = (
+            action(
+                "interact",
+                "我缓慢而小心地靠近 D4C Dragon，保持距离",
+                method="缓慢而小心地靠近",
+            ),
+            action(
+                "interact",
+                "我平静地和 D4C Dragon 说话",
+                method="轻声说话",
+            ),
+            action(
+                "interact",
+                "我主动后退一步，尊重 D4C Dragon 的边界",
+                method="后退并保持平静",
+            ),
+            action(
+                "interact",
+                "我轻轻触碰 D4C Dragon",
+                method="小心触碰",
+            ),
+            action(
+                "interact",
+                "我再次平静地和 D4C Dragon 说话",
+                method="轻声说话",
+            ),
+            action(
+                "interact",
+                "我再次轻轻触碰 D4C Dragon",
+                method="小心触碰",
+            ),
+        )
+        result = None
+        for index, structured in enumerate(steps, start=1):
+            result = self._commit(
+                structured,
+                suffix=f"fast_demo_{index}",
+            )
+        assert result is not None
+        self.assertEqual(result["taming_state"], "tamed")
+        self.assertEqual(
+            result["taming_transition"],
+            {"from": "bonding", "to": "tamed"},
+        )
 
 
 if __name__ == "__main__":

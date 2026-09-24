@@ -25,6 +25,7 @@ from database.models import (
     PlayerState,
 )
 from database.persistence import PostgresPersistenceAdapter
+from multimodal.scene_renderer import DisabledSceneImageProvider
 
 
 async def asgi_request(
@@ -110,6 +111,18 @@ class RejectingProvider:
 
     def create_structured_output(self, **_: Any) -> str:
         raise AssertionError("Dragon Candidate provider must not be called.")
+
+
+class OfflineImageProvider:
+    name = "offline-image"
+    enabled = True
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def generate(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        return "https://images.example.test/kael.png"
 
 
 def action(
@@ -312,12 +325,16 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
 
     def _seed_history(self, interaction_type: str, category: str, index: int) -> None:
         source_id = f"{self.source_prefix}history_{index}"
+        with self.session_factory() as session:
+            dragon = session.get(Dragon, self.dragon_id)
+            assert dragon is not None
+            taming_state = dragon.taming_state
         snapshot = {
             "familiarity": 0,
             "trust": 0,
             "fear": 0,
             "bond": 0,
-            "taming_state": "wild",
+            "taming_state": taming_state,
         }
         payload = {
             "structured_action": action("interact", f"seed {interaction_type}"),
@@ -384,6 +401,7 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
             dragon_provider_client=RejectingProvider(),  # type: ignore[arg-type]
             dragon_encounter_roll=roll,
             persistence_adapter=self.persistence,
+            image_provider=DisabledSceneImageProvider("offline test"),
         )
         status, payload = asyncio.run(
             asgi_request(
@@ -429,6 +447,121 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
         self.assertIn("dragon_interaction", source)
         self.assertNotIn("dragon_encounter_decision", source)
 
+    def test_chinese_dragon_name_enters_d4_and_changes_relationship(self) -> None:
+        with self.session_factory.begin() as session:
+            dragon = session.get(Dragon, self.dragon_id)
+            assert dragon is not None
+            dragon.name = "Kael"
+
+        payload = self._execute(
+            "我缓慢而小心地靠近凯尔，保持距离，不做任何威胁动作。",
+            action(
+                "interact",
+                "缓慢而小心地靠近凯尔，保持距离，不做任何威胁动作",
+                target="凯尔",
+            ),
+        )
+
+        interaction = payload["dragon_interaction"]
+        self.assertEqual(interaction["dragon_id"], self.dragon_id)
+        self.assertEqual(interaction["interaction_type"], "approach")
+        self.assertEqual(interaction["applied_deltas"]["familiarity"], 1)
+        self.assertIn("凯尔", interaction["player_message"])
+
+    def test_dragon_name_in_action_still_grounds_when_target_is_missing(self) -> None:
+        with self.session_factory.begin() as session:
+            dragon = session.get(Dragon, self.dragon_id)
+            assert dragon is not None
+            dragon.name = "Kael"
+
+        payload = self._execute(
+            "我平静地对凯尔说话，让它熟悉我的声音。",
+            action(
+                "interact",
+                "平静地对凯尔说话，让它熟悉我的声音",
+                target=None,
+                method="轻声说话",
+            ),
+        )
+
+        interaction = payload["dragon_interaction"]
+        self.assertEqual(interaction["dragon_id"], self.dragon_id)
+        self.assertEqual(interaction["interaction_type"], "communicate")
+        self.assertEqual(interaction["applied_deltas"]["trust"], 1)
+
+    def test_chinese_fast_demo_sequence_reaches_personal_tamed_state(self) -> None:
+        with self.session_factory.begin() as session:
+            dragon = session.get(Dragon, self.dragon_id)
+            assert dragon is not None
+            dragon.name = "Kael"
+
+        steps = (
+            (
+                "我缓慢而小心地靠近凯尔，保持距离，不做任何威胁动作。",
+                action(
+                    "interact",
+                    "缓慢而小心地靠近凯尔，保持距离，不做任何威胁动作",
+                    target="凯尔",
+                ),
+            ),
+            (
+                "我平静地对凯尔说话，让它熟悉我的声音。",
+                action(
+                    "interact",
+                    "平静地对凯尔说话，让它熟悉我的声音",
+                    target="凯尔",
+                    method="轻声说话",
+                ),
+            ),
+            (
+                "我从凯尔身边主动后退一步，尊重它的边界。",
+                action(
+                    "interact",
+                    "从凯尔身边主动后退一步，尊重它的边界",
+                    target="凯尔",
+                    method="后退并保持平静",
+                ),
+            ),
+            (
+                "我缓慢伸手，轻轻触碰凯尔的颈侧。",
+                action(
+                    "interact",
+                    "缓慢伸手，轻轻触碰凯尔的颈侧",
+                    target="凯尔",
+                    method="小心触碰",
+                ),
+            ),
+            (
+                "我再次平静地对凯尔说话，安抚它。",
+                action(
+                    "interact",
+                    "再次平静地对凯尔说话，安抚它",
+                    target="凯尔",
+                    method="轻声说话",
+                ),
+            ),
+            (
+                "我再次缓慢伸手，轻轻触碰凯尔。",
+                action(
+                    "interact",
+                    "再次缓慢伸手，轻轻触碰凯尔",
+                    target="凯尔",
+                    method="小心触碰",
+                ),
+            ),
+        )
+
+        interaction = None
+        for player_input, structured in steps:
+            interaction = self._execute(player_input, structured)["dragon_interaction"]
+
+        assert interaction is not None
+        self.assertEqual(interaction["taming_state"], "tamed")
+        self.assertEqual(
+            interaction["taming_transition"],
+            {"from": "bonding", "to": "tamed"},
+        )
+
     def test_case_02_regular_travel_does_not_enter_d4(self) -> None:
         payload = self._execute(
             "我要去 Skeld。",
@@ -467,12 +600,63 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
         self.assertEqual(
             payload["dragon_interaction"]["interaction_type"], "observe"
         )
+        self.assertEqual(payload["scene_visual"]["trigger"], "dragon_observation")
+        self.assertEqual(payload["scene_visual"]["status"], "disabled")
         self.assertIsNone(
             self.persistence.get_player_dragon_bond(
                 player_id=self.player_id,
                 dragon_id=self.dragon_id,
             )
         )
+
+    def test_looking_at_named_dragon_triggers_observation_visual(self) -> None:
+        payload = self._execute(
+            "我静静地看着 D4D Dragon",
+            action("observe_search", "静静地看着 D4D Dragon"),
+        )
+        self.assertEqual(payload["dragon_interaction"]["interaction_type"], "observe")
+        self.assertEqual(payload["scene_visual"]["trigger"], "dragon_observation")
+        self.assertEqual(payload["scene_visual"]["status"], "disabled")
+
+    def test_looking_at_kael_returns_image_url_and_reuses_portrait(self) -> None:
+        with self.session_factory.begin() as session:
+            dragon = session.get(Dragon, self.dragon_id)
+            assert dragon is not None
+            dragon.name = "Kael"
+        image_provider = OfflineImageProvider()
+        application = create_app(
+            action_provider_client=StubProvider(
+                action("observe_search", "静静地看着凯尔", target="凯尔")
+            ),  # type: ignore[arg-type]
+            dragon_provider_client=RejectingProvider(),  # type: ignore[arg-type]
+            persistence_adapter=self.persistence,
+            image_provider=image_provider,
+        )
+        for expected_reused in (False, True):
+            status, payload = asyncio.run(asgi_request(
+                application,
+                "/api/action/execute",
+                method="POST",
+                body={
+                    "player_id": self.player_id,
+                    "player_input": "我静静地看着凯尔",
+                    "defer_visual": expected_reused,
+                },
+            ))
+            self.assertEqual(status, 200, payload)
+            self.assertEqual(payload["dragon_interaction"]["interaction_type"], "observe")
+            visual = payload["scene_visual"]
+            if expected_reused:
+                self.assertEqual(visual["status"], "pending")
+                visual_status, visual = asyncio.run(asgi_request(
+                    application, f"/api/visual/{payload['source_event_id']}"
+                ))
+                self.assertEqual(visual_status, 200, visual)
+            self.assertEqual(visual["status"], "generated")
+            self.assertEqual(visual["trigger"], "dragon_observation")
+            self.assertEqual(visual["image_url"], "https://images.example.test/kael.png")
+            self.assertEqual(visual["reused"], expected_reused)
+        self.assertEqual(len(image_provider.prompts), 1)
 
     def test_case_05_cautious_approach_persists_familiarity(self) -> None:
         payload = self._execute(
@@ -575,9 +759,22 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
         self.assertEqual(self._dragon_event_count(), before + 1)
         self.assertIn("已经接受了你", payload["player_message"])
 
-    def test_case_11_tamed_ride_remains_blocked_without_unlock(self) -> None:
+    def test_case_11_personally_tamed_ride_unlocks_on_first_mount(self) -> None:
         self._set_dragon_state("tamed")
         self._seed_bond(4, 3, 0, 2, riding_unlocked=False)
+        with self.session_factory.begin() as session:
+            session.add(DragonEvent(
+                event_id=f"{self.source_prefix}tamed_milestone",
+                event_type="dragon_tamed",
+                dragon_id=self.dragon_id,
+                player_id=self.player_id,
+                source_interaction_event_id=None,
+                world_day=1,
+                world_hour=8,
+                location_id="stormcliff",
+                milestone_key="tamed",
+                event_payload={},
+            ))
         payload = self._execute(
             "我要骑 D4D Dragon。",
             action(
@@ -587,13 +784,10 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
                 intent="骑乘",
             ),
         )
-        interaction = payload["dragon_interaction"]
-        self.assertEqual(interaction["status"], "blocked")
-        self.assertEqual(
-            interaction["reason_code"],
-            "dragon_riding_not_unlocked",
-        )
-        self.assertFalse(interaction["bond_state"]["riding_unlocked"])
+        self.assertIsNone(payload["dragon_interaction"])
+        self.assertEqual(payload["dragon_riding"]["status"], "success")
+        self.assertEqual(payload["dragon_riding"]["reason_code"], "riding_mounted")
+        self.assertTrue(payload["dragon_riding"]["riding_unlocked"])
 
     def test_case_12_different_location_is_blocked_without_movement(self) -> None:
         with self.session_factory.begin() as session:
@@ -757,3 +951,17 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
             interaction["after"]["familiarity"],
             bond["familiarity"],
         )
+
+    def test_api_never_labels_another_players_global_taming_as_personal(self) -> None:
+        self._set_dragon_state("tamed")
+        payload = self._execute(
+            "我小心靠近 D4D Dragon，展示自己没有任何威胁。",
+            action(
+                "interact",
+                "小心靠近 D4D Dragon，展示自己没有任何威胁",
+                method="缓慢靠近并放低姿态",
+            ),
+        )
+        interaction = payload["dragon_interaction"]
+        self.assertEqual(interaction["taming_state"], "wild")
+        self.assertNotEqual(interaction["dragon_reaction"], "accepting")

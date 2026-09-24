@@ -366,6 +366,131 @@ class FreeActionResolutionTests(unittest.TestCase):
         self.assertEqual(result["resolution"]["state_changes"], {})
         self._assert_event(result, f"{self.event_prefix}case_8c")
 
+    def test_case_9_portable_items_stack_with_bounded_inventory(self) -> None:
+        pickup = action(
+            "use_acquire",
+            "捡起一块石头放进背包",
+            target="一块石头",
+            method="捡起后放进背包",
+        )
+        first = self._commit("我捡起一块石头放进背包。", pickup, "case_9a")
+        second = self._commit("我又捡起一块石头放进背包。", pickup, "case_9b")
+        self.assertEqual(first["resolution"]["reason_code"], "item_acquired")
+        self.assertEqual(second["player_state"]["inventory"], [{
+            "id": second["player_state"]["inventory"][0]["id"],
+            "name": "石头",
+            "quantity": 2,
+        }])
+
+        cannot_carry = self._commit(
+            "我把一条龙放进背包。",
+            action("use_acquire", "把一条龙放进背包", target="一条龙", method="捡起"),
+            "case_9c",
+        )
+        self.assertEqual(cannot_carry["resolution"]["status"], "blocked")
+        self.assertEqual(cannot_carry["resolution"]["reason_code"], "item_not_portable")
+        self.assertEqual(cannot_carry["player_state"]["inventory"][0]["quantity"], 2)
+
+    def test_case_9b_inventory_has_twelve_slots_and_twenty_per_stack(self) -> None:
+        full_inventory = [
+            {"id": f"item_{index}", "name": f"物品{index}", "quantity": 1}
+            for index in range(12)
+        ]
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="skeld_village",
+            inventory=full_inventory,
+            goals=[],
+        )
+        full = self._commit(
+            "我捡起一块石头。",
+            action("use_acquire", "捡起一块石头", target="石头", method="捡起"),
+            "case_9d",
+        )
+        self.assertEqual(full["resolution"]["reason_code"], "inventory_full")
+
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="skeld_village",
+            inventory=[{"id": "stone", "name": "石头", "quantity": 20}],
+            goals=[],
+        )
+        stack = self._commit(
+            "我再捡一块石头。",
+            action("use_acquire", "再捡一块石头", target="石头", method="捡起"),
+            "case_9e",
+        )
+        self.assertEqual(
+            stack["resolution"]["reason_code"],
+            "inventory_stack_limit_reached",
+        )
+
+    def test_hunt_and_buy_commit_grounded_meat_to_inventory(self) -> None:
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="whispering_woods",
+            inventory=[],
+            goals=[],
+        )
+        hunted = self._commit(
+            "我在低语森林打猎，寻找鹿。",
+            action("conflict", "在低语森林打猎，寻找鹿", target="鹿"),
+            "hunt_deer",
+        )
+        self.assertEqual(hunted["resolution"]["reason_code"], "food_hunted")
+        self.assertEqual(hunted["player_state"]["inventory"][0]["food_kind"], "venison")
+        self.assertEqual(hunted["player_state"]["inventory"][0]["category"], "food")
+
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="skeld_village",
+            inventory=hunted["player_state"]["inventory"],
+            goals=[],
+        )
+        bought = self._commit(
+            "我在村庄买一条鱼。",
+            action("create_trade", "在村庄买一条鱼", target="鱼"),
+            "buy_fish",
+        )
+        self.assertEqual(bought["resolution"]["reason_code"], "food_bought")
+        self.assertEqual(
+            {item["food_kind"] for item in bought["player_state"]["inventory"]},
+            {"venison", "fish"},
+        )
+
+    def test_read_only_generic_hunt_does_not_choose_random_food(self) -> None:
+        self.persistence.upsert_player_state(
+            player_id=self.player_id,
+            current_location="whispering_woods",
+            inventory=[],
+            goals=[],
+        )
+        preview = resolve_current_action(
+            player_id=self.player_id,
+            structured_action=action("conflict", "我在森林里打猎"),
+            persistence=self.persistence,
+            world_skeleton=self.skeleton,
+        )
+        self.assertEqual(preview["reason_code"], "food_target_not_grounded")
+        self.assertEqual(self.persistence.get_player_state(self.player_id)["inventory"], [])
+
+    def test_food_acquisition_rejects_wrong_habitat_and_human_prey(self) -> None:
+        village_hunt = self._commit(
+            "我在村里打猎。",
+            action("conflict", "在村里打猎"),
+            "village_hunt",
+        )
+        self.assertEqual(village_hunt["resolution"]["status"], "blocked")
+        self.assertEqual(village_hunt["player_state"]["inventory"], [])
+
+        human = self._commit(
+            "我买人肉喂龙。",
+            action("create_trade", "买人肉喂龙", target="人肉"),
+            "human_food",
+        )
+        self.assertEqual(human["resolution"]["status"], "blocked")
+        self.assertEqual(human["player_state"]["inventory"], [])
+
     def test_atomic_failure_rolls_back_player_state(self) -> None:
         duplicate_id = f"{self.event_prefix}atomic"
         first = self._commit(

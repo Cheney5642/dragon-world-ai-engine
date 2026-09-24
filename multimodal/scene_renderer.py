@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
@@ -140,7 +140,7 @@ def _safe_base_url(value: Any) -> str | None:
 
 
 def visual_trigger(action_result: Mapping[str, Any]) -> str | None:
-    """Select only the four high-value D7 event classes."""
+    """Select grounded moments worth illustrating."""
 
     riding = action_result.get("dragon_riding")
     if isinstance(riding, Mapping) and riding.get("status") in {
@@ -160,6 +160,14 @@ def visual_trigger(action_result: Mapping[str, Any]) -> str | None:
         "direct_encounter",
     }:
         return "dragon_encounter"
+    interaction = action_result.get("dragon_interaction")
+    if (
+        isinstance(interaction, Mapping)
+        and interaction.get("status") in {"applied", "already_applied"}
+        and interaction.get("interaction_type") == "observe"
+        and isinstance(interaction.get("dragon_id"), str)
+    ):
+        return "dragon_observation"
     update = action_result.get("story_update")
     if isinstance(update, Mapping) and update.get("status") == "recorded" and update.get("event"):
         return "personal_story_event"
@@ -220,6 +228,15 @@ def build_visual_prompt(context: Mapping[str, Any]) -> str:
     """Translate grounded context into a first-person cinematic prompt."""
 
     context_json = json.dumps(context, ensure_ascii=False, sort_keys=True)
+    if context.get("event_type") == "dragon_observation":
+        return (
+            "Dragon World first-person dragon observation portrait. Show only "
+            "the one grounded dragon in dragon_presence, matching its exact "
+            "appearance. Keep the background neutral and unobtrusive so this "
+            "dragon's likeness can be reused at another location. No invented "
+            "people, dragons, text, HUD, captions, or logos. "
+            f"Grounded visual context: {context_json}"
+        )
     return (
         "Dragon World v0.1 cinematic game scene. Render only the supplied "
         "grounded context. Do not invent people, dragons, buildings, ownership, "
@@ -235,6 +252,7 @@ def render_scene_visual(
     action_result: Mapping[str, Any],
     world: Mapping[str, Any],
     provider: SceneImageProvider,
+    image_cache: MutableMapping[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Render a presentation result; all failures remain non-gameplay failures."""
 
@@ -242,8 +260,26 @@ def render_scene_visual(
     if trigger is None:
         return None
     context = build_visual_context(trigger=trigger, world=world)
+    if trigger == "dragon_observation":
+        interaction = action_result["dragon_interaction"]
+        dragon_id = interaction["dragon_id"]
+        observed = [
+            dragon for dragon in context["dragon_presence"]
+            if dragon["dragon_id"] == dragon_id
+        ]
+        if len(observed) != 1:
+            raise ValueError("Observed Dragon is absent from the formal World snapshot.")
+        context = {
+            "camera": "first_person",
+            "event_type": trigger,
+            "dragon_presence": [{
+                "dragon_id": observed[0]["dragon_id"],
+                "name": observed[0]["name"],
+                "appearance": observed[0]["appearance"],
+            }],
+        }
     story_event = (action_result.get("story_update") or {}).get("event")
-    if story_event:
+    if story_event and trigger != "dragon_observation":
         # Semantic wishes/claims are deliberately not sent to the image model.
         context["event"] = {
             "event_id": story_event["event_id"], "event_type": story_event["event_type"],
@@ -264,6 +300,10 @@ def render_scene_visual(
         "scene_description": context,
         "image_prompt": prompt,
     }
+    if trigger == "dragon_observation" and image_cache is not None:
+        cached_url = image_cache.get(context_hash)
+        if cached_url:
+            return {**base, "status": "generated", "image_url": cached_url, "reused": True}
     if not provider.enabled:
         return {**base, "status": "disabled"}
     try:
@@ -285,4 +325,8 @@ def render_scene_visual(
             _safe_base_url(getattr(provider, "base_url", None)),
         )
         return {**base, "status": "failed"}
-    return {**base, "status": "generated", "image_url": image_url}
+    if trigger == "dragon_observation" and image_cache is not None:
+        image_cache[context_hash] = image_url
+        while len(image_cache) > 64:
+            image_cache.pop(next(iter(image_cache)))
+    return {**base, "status": "generated", "image_url": image_url, "reused": False}

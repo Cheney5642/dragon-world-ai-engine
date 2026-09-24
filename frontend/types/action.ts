@@ -1,4 +1,4 @@
-import type { Dragon, Player } from "@/types/world";
+import type { Dragon, InventoryEntry, Player } from "@/types/world";
 import type { StoryUpdate } from "@/types/story";
 
 export type FreeActionFamily =
@@ -48,12 +48,14 @@ export interface FreeActionResolution {
   state_changes: {
     current_location?: string;
     goals?: string[];
+    inventory?: InventoryEntry[];
   };
 }
 
 export interface ActionExecuteRequest {
   player_id: string;
   player_input: string;
+  defer_visual?: boolean;
 }
 
 export type DragonEncounterOutcome =
@@ -142,12 +144,13 @@ export interface DragonRidingResult {
 }
 
 export interface SceneVisualResult {
-  status: "generated" | "disabled" | "failed";
+  status: "pending" | "generated" | "disabled" | "failed";
   trigger: string;
   provider: string;
   context_hash: string | null;
   camera: "first_person" | "first_person_dragon_back" | null;
   image_url: string | null;
+  reused?: boolean;
   scene_description?: Record<string, unknown>;
   image_prompt?: string;
 }

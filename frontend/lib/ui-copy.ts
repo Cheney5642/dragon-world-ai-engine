@@ -95,6 +95,19 @@ const KNOWN_VALUE_COPY: Record<string, string> = {
   defensive: "戒备",
   accepting: "接受",
   retreating: "退避",
+  skeld_village: "斯凯尔德",
+  stormcliff: "风暴崖",
+  old_ruins: "古老遗迹",
+  whispering_woods: "低语森林",
+  Skeld: "斯凯尔德",
+  Stormcliff: "风暴崖",
+  "Old Ruins": "古老遗迹",
+  "Whispering Woods": "低语森林",
+  Kael: "凯尔",
+  Voryn: "沃林",
+  Astrid: "阿斯特丽德",
+  Bjorn: "比约恩",
+  Haldor: "哈尔多",
 };
 
 export const LOCATION_MOOD_COPY: Record<string, string> = {
@@ -123,11 +136,11 @@ export const UI_COPY = {
     freedom:
       "你也可以走上一条完全不同的道路。这个世界没有规定你应该成为谁；你的来历、身份与愿望，将从你自己的讲述开始。",
     enter: "进入这个世界",
-    arrivalLabel: "SKELD · 北境海岸",
-    arrivalTitle: "你在 Skeld 醒来。",
+    arrivalLabel: "斯凯尔德 · 北境海岸",
+    arrivalTitle: "你在斯凯尔德醒来。",
     arrivalLead: "海风带着盐与寒意吹过你的脸。",
     arrivalScene:
-      "远处的云层之间，一个巨大的黑影一闪而过。当你再次睁开眼睛时，你已经站在北境海岸的小村 Skeld。",
+      "远处的云层之间，一个巨大的黑影一闪而过。当你再次睁开眼睛时，你已经站在北境海岸的小村斯凯尔德。",
     identitySection: "01 · 开放身份",
     identityPrompt: "告诉这个世界：你是谁？",
     identityHint:
@@ -179,7 +192,7 @@ export const UI_COPY = {
   },
   world: {
     currentLocation: "当前位置",
-    fallbackMood: "Dragon Isles 区域",
+    fallbackMood: "龙之群岛",
     log: "世界日志",
     currentLocationLog: (location: string) => `当前位置：${location}`,
     liveState: "世界状态",
@@ -224,13 +237,13 @@ export const UI_COPY = {
     metadataNote: "只显示 /api/action/execute 返回的正式运行时数据。",
   },
   action: {
-    section: "自然语言行动",
+    section: "此刻，你想做什么？",
     initialStatus: "自由世界行动已就绪",
     label: "你想做什么？",
     placeholder: "输入你想尝试的任何行动……",
     preview: "预览行动",
     previewing: "正在预览……",
-    execute: "采取行动",
+    execute: "付诸行动",
     executing: "正在行动……",
     interpreting: "正在理解行动……",
     previewReady: (status: string) => `预览完成 · ${status}`,
@@ -246,11 +259,11 @@ export const UI_COPY = {
     npcTargetUnavailable: "目标 NPC 当前不在附近，未切换对话对象。",
   },
   npcDialogue: {
-    section: "NPC 对话",
-    panelHint: (name: string) => `与 ${name} 自然交谈`,
+    section: (name?: string) => name ? `对 ${name} 说` : "与身边的人交谈",
+    panelHint: (name: string) => `${name} 正在你面前`,
     noNpcSelected: "附近没有可对话角色",
-    npcName: "对话角色",
-    response: "NPC 回复",
+    npcName: "你正在面对",
+    response: (name?: string) => name ? `${name} 回应` : "回应",
     emptyResponse: (name?: string) =>
       name ? `向 ${name} 说点什么，开始本次对话。` : "当前没有可对话角色。",
     loading: (name?: string) => `${name ?? "NPC"} 正在回应……`,
@@ -259,8 +272,8 @@ export const UI_COPY = {
     inputLabel: (name?: string) => `你想对 ${name ?? "NPC"} 说什么？`,
     placeholder: (name?: string) =>
       name ? `输入你想对 ${name} 说的话……` : "附近没有可对话角色",
-    send: "发送",
-    sending: "发送中……",
+    send: "说出这句话",
+    sending: "等待回应……",
   },
   dragonEncounter: {
     section: "Dragon Encounter",

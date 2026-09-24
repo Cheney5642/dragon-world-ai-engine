@@ -2,7 +2,9 @@ import type { PersonalStory } from "@/types/story";
 
 export interface InventoryItem {
   id?: string;
+  item_id?: string;
   name?: string;
+  category?: string;
   quantity?: number;
 }
 

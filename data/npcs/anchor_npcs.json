@@ -3,10 +3,10 @@
   "profiles": [
     {
       "id": "npc_astrid",
-      "name": "Astrid",
+      "name": "阿斯特丽德",
       "species": "human",
       "occupation": "fisherman's daughter",
-      "background": "A young woman from a Skeld fishing family who helps prepare her father's boat and is curious about life beyond the village.",
+      "background": "A young woman from a 斯凯尔德 fishing family who helps prepare her father's boat and is curious about life beyond the village.",
       "personality": {
         "traits": [
           "independent",
@@ -22,7 +22,7 @@
       },
       "goals": [
         "support her fishing family",
-        "learn more about the world beyond Skeld"
+        "learn more about the world beyond 斯凯尔德"
       ],
       "knowledge": {
         "known_entities": [
@@ -48,10 +48,10 @@
     },
     {
       "id": "npc_bjorn",
-      "name": "Bjorn",
+      "name": "比约恩",
       "species": "human",
       "occupation": "blacksmith",
-      "background": "Skeld's blacksmith and Eirik's smithing mentor, responsible for repairing equipment used by the village fishing community.",
+      "background": "斯凯尔德's blacksmith and 埃里克's smithing mentor, responsible for repairing equipment used by the village fishing community.",
       "personality": {
         "traits": [
           "gruff",
@@ -79,7 +79,7 @@
         "known_facts": [
           "metalworking",
           "village gossip",
-          "Eirik learned blacksmithing under Bjorn"
+          "埃里克 learned blacksmithing under 比约恩"
         ]
       },
       "relationship_defaults": {
@@ -94,10 +94,10 @@
     },
     {
       "id": "npc_haldor",
-      "name": "Haldor",
+      "name": "哈尔多",
       "species": "human",
       "occupation": "dragon tamer",
-      "background": "An experienced dragon tamer in Skeld who observes unusual dragon behavior and keeps uncertain conclusions guarded.",
+      "background": "An experienced dragon tamer in 斯凯尔德 who observes unusual dragon behavior and keeps uncertain conclusions guarded.",
       "personality": {
         "traits": [
           "patient",

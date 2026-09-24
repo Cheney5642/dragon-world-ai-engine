@@ -3,6 +3,7 @@ import type {
   ActionExecuteRequest,
   ActionExecuteResponse,
   ActionPreviewResponse,
+  SceneVisualResult,
 } from "@/types/action";
 import { UI_COPY } from "@/lib/ui-copy";
 import type {
@@ -192,6 +193,29 @@ export async function executeAction(
     if (error instanceof DragonWorldApiError) {
       throw error;
     }
+    throw new DragonWorldNetworkError(UI_COPY.errors.worldOffline);
+  }
+}
+
+export async function getSceneVisual(
+  sourceEventId: string,
+  signal?: AbortSignal,
+): Promise<SceneVisualResult> {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/api/visual/${encodeURIComponent(sourceEventId)}`,
+      { cache: "no-store", signal },
+    );
+    if (!response.ok) {
+      throw new DragonWorldHttpError(
+        UI_COPY.errors.http(response.status),
+        response.status,
+      );
+    }
+    return (await response.json()) as SceneVisualResult;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    if (error instanceof DragonWorldApiError) throw error;
     throw new DragonWorldNetworkError(UI_COPY.errors.worldOffline);
   }
 }

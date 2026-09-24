@@ -36,6 +36,7 @@ from database.models import (
     WorldStateEntry,
 )
 from database.persistence import PostgresPersistenceAdapter
+from multimodal.scene_renderer import DisabledSceneImageProvider
 
 
 def action(
@@ -147,6 +148,7 @@ class LocationDiscoveryTests(unittest.TestCase):
         self.token = uuid.uuid4().hex
         self.player_id = f"test_d5_{self.token}"
         self.event_id = f"test_d5_event_{self.token}"
+        self.name_token = str(int(self.token[:8], 16))
         self.skeleton = load_world_skeleton()
         self.initial_locations = copy.deepcopy(self.persistence.get_dynamic_location_registry()["locations"])
         with self.session_factory() as session:
@@ -162,7 +164,7 @@ class LocationDiscoveryTests(unittest.TestCase):
             intent="寻找从未去过的地方",
         )
         self.candidate = {
-            "name": f"测试风痕岭{self.token[:6]}",
+            "name": f"测试风痕岭{self.name_token}",
             "location_type": "ridge",
             "short_description": "灰白岩脊伸向寒雾笼罩的北方。",
             "environment_tags": ["寒风", "岩脊"],
@@ -200,7 +202,7 @@ class LocationDiscoveryTests(unittest.TestCase):
                 value["locations"] = {
                     location_id: location
                     for location_id, location in locations.items()
-                    if self.token[:6] not in str(location.get("name", ""))
+                    if self.name_token not in str(location.get("name", ""))
                 }
                 if value["locations"]:
                     registry.state_value = value
@@ -355,6 +357,7 @@ class LocationDiscoveryTests(unittest.TestCase):
             location_provider_client=provider,  # type: ignore[arg-type]
             dragon_encounter_roll=0.0,
             persistence_adapter=self.persistence,
+            image_provider=DisabledSceneImageProvider("test disabled"),
         )
         status, payload = asyncio.run(
             asgi_request(
@@ -413,6 +416,18 @@ class LocationDiscoveryTests(unittest.TestCase):
         with self.assertRaises(LocationDiscoveryError):
             ground_location_candidate(
                 candidate=invalid,
+                structured_action=self.explore,
+                resolution=resolution(),
+                source_interaction_event_id=self.event_id,
+                current_location_id="skeld_village",
+                locations=self.skeleton["locations"],
+            )
+
+        english_name = dict(self.candidate)
+        english_name["name"] = "Frostwind Ridge"
+        with self.assertRaises(LocationDiscoveryError):
+            ground_location_candidate(
+                candidate=english_name,
                 structured_action=self.explore,
                 resolution=resolution(),
                 source_interaction_event_id=self.event_id,

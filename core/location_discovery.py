@@ -255,6 +255,10 @@ def ground_location_candidate(
         )
 
     name = str(candidate["name"]).strip()
+    if not re.search(r"[\u4e00-\u9fff]", name) or re.search(r"[A-Za-z]", name):
+        raise LocationDiscoveryError(
+            "Location Candidate name must be written in Chinese."
+        )
     wanted_name = _normalized_name(name)
     for location in locations.values():
         if not isinstance(location, Mapping):

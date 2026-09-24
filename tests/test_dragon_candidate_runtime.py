@@ -52,7 +52,7 @@ def decision(outcome: str = "sighting") -> dict[str, Any]:
 
 def candidate(
     *,
-    name: str = "Mossveil",
+    name: str = "苔雾",
     physical_tendency: str = "medium_balanced",
     behavioral_tendency: str = "cautious",
     ecological_flavor: str = "It moves quietly beneath old forest canopies.",
@@ -95,6 +95,7 @@ class DragonCandidateOfflineTests(unittest.TestCase):
         prompt = PROMPT_PATH.read_text(encoding="utf-8")
         self.assertIn("Simplified Chinese", prompt)
         for field_name in (
+            "name",
             "appearance.description",
             "appearance.distinctive_features",
             "personality_traits",
@@ -178,6 +179,15 @@ class DragonCandidateOfflineTests(unittest.TestCase):
                 candidate=candidate(),
                 provisional_decision=decision(),
                 encounter_location_id="invented_dragon_vale",
+                locations=self.locations,
+            )
+
+    def test_english_dragon_name_fails_grounding(self) -> None:
+        with self.assertRaises(DragonCandidateError):
+            ground_dragon_candidate(
+                candidate=candidate(name="Mossveil"),
+                provisional_decision=decision(),
+                encounter_location_id="whispering_woods",
                 locations=self.locations,
             )
 
@@ -396,7 +406,7 @@ class DragonCandidateDatabaseTests(unittest.TestCase):
         first = self._commit(source_id)
         second = self._commit(
             source_id,
-            candidate_value=candidate(name="A Different Retry Candidate"),
+            candidate_value=candidate(name="另一条重试候选龙"),
         )
         after = self._counts()
         self.assertEqual(first["status"], "committed")

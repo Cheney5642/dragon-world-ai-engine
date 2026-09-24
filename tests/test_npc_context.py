@@ -82,7 +82,7 @@ class NpcContextTests(unittest.TestCase):
             [
                 {
                     "id": "npc_bjorn",
-                    "name": "Bjorn",
+                    "name": "比约恩",
                     "species": "human",
                     "occupation": "blacksmith",
                 }

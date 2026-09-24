@@ -28,6 +28,7 @@ from database.models import (
 )
 from database.persistence import PostgresPersistenceAdapter
 from dragon.candidate_runtime import commit_new_dragon_encounter
+from multimodal.scene_renderer import DisabledSceneImageProvider
 
 
 async def asgi_request(
@@ -139,7 +140,7 @@ def action(
     }
 
 
-def dragon_candidate(name: str = "Mossveil") -> dict[str, Any]:
+def dragon_candidate(name: str = "苔雾") -> dict[str, Any]:
     return {
         "name": name,
         "appearance": {
@@ -258,6 +259,7 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
             dragon_provider_client=dragon_provider,  # type: ignore[arg-type]
             dragon_encounter_roll=roll,
             persistence_adapter=self.persistence,
+            image_provider=DisabledSceneImageProvider("test disabled"),
         )
         status, payload = asyncio.run(
             asgi_request(
@@ -332,8 +334,13 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
             side_effect=commit_after_provisional,
         ):
             payload, _, _ = self._execute(
-                "我深入 Whispering Woods 寻找龙。",
-                self._search_action(),
+                "我深入低语森林寻找一条尚未见过的测试龙。",
+                action(
+                    "observe_search",
+                    "深入森林寻找一条尚未见过的测试龙",
+                    target=f"测试龙{self.player_id[-8:]}",
+                    intent="寻找一条尚未见过的龙",
+                ),
                 roll=0.75,
                 candidate_provider=dragon_provider,
             )
@@ -350,7 +357,7 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
         )
 
     def test_case_4_same_location_reuses_existing_dragon(self) -> None:
-        first_provider = StubProvider(dragon_candidate("Mossveil"))
+        first_provider = StubProvider(dragon_candidate("苔雾"))
         first, _, _ = self._execute(
             "我深入 Whispering Woods 寻找龙。",
             self._search_action(),
@@ -389,7 +396,7 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
         self.assertEqual(self._dragon_count(), before)
 
     def test_case_6_open_exploration_can_encounter_without_new_location(self) -> None:
-        dragon_provider = StubProvider(dragon_candidate("Northwind"))
+        dragon_provider = StubProvider(dragon_candidate("北风"))
         before_location = self.persistence.get_player_state(self.player_id)[
             "current_location"
         ]
@@ -430,7 +437,7 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(len(history), 2)
 
-        dragon_provider = StubProvider(dragon_candidate("Historywing"))
+        dragon_provider = StubProvider(dragon_candidate("史翼"))
         sighting, _, _ = self._execute(
             "我继续深入 Whispering Woods 寻找龙。",
             self._search_action(),
@@ -447,7 +454,7 @@ class DragonEncounterIntegrationTests(unittest.TestCase):
         self.assertEqual(after_sighting["dragon_encounter"]["context_score"], 7)
 
     def test_case_8_world_reads_back_committed_nearby_dragons(self) -> None:
-        dragon_provider = StubProvider(dragon_candidate("Mossveil"))
+        dragon_provider = StubProvider(dragon_candidate("苔雾"))
         encounter, _, _ = self._execute(
             "我深入 Whispering Woods 寻找龙。",
             self._search_action(),

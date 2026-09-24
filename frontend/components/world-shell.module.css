@@ -212,6 +212,21 @@
 
 .inventoryList { display: flex; flex-wrap: wrap; gap: 7px; }
 
+.inventoryHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.inventoryHeading span,
+.inventoryHint {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.inventoryHint { margin-top: 9px; line-height: 1.45; }
+
 .inventoryList li {
   padding: 7px 9px;
   border: 1px solid var(--line-soft);
@@ -445,7 +460,25 @@
 }
 
 .actionConsole,
-.dialoguePanel { padding: 16px 18px 18px; }
+.dialoguePanel {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 20px 20px;
+  border-color: rgba(190, 157, 101, 0.28);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(184, 145, 81, 0.11), transparent 34%),
+    linear-gradient(145deg, rgba(24, 31, 31, 0.96), rgba(8, 14, 17, 0.98));
+}
+.actionConsole::before,
+.dialoguePanel::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  pointer-events: none;
+  border: 1px solid rgba(211, 177, 113, 0.08);
+  border-radius: 7px;
+}
 .consoleHeading { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .consoleHeading p { color: var(--muted); font-size: 10px; }
 
@@ -462,9 +495,10 @@
   height: 34px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--accent-dim);
-  color: var(--accent-bright);
-  background: rgba(86, 142, 140, 0.08);
+  border: 1px solid rgba(211, 177, 113, 0.42);
+  border-radius: 50%;
+  color: #e2c792;
+  background: rgba(121, 87, 43, 0.16);
   font-size: 11px;
   font-weight: 700;
 }
@@ -482,8 +516,9 @@
   min-height: 76px;
   margin-bottom: 12px;
   padding: 13px 15px;
-  border-left: 2px solid var(--accent-dim);
-  background: rgba(2, 8, 11, 0.46);
+  border-left: 2px solid rgba(211, 177, 113, 0.5);
+  border-radius: 0 8px 8px 0;
+  background: linear-gradient(90deg, rgba(91, 65, 35, 0.16), rgba(2, 8, 11, 0.46));
 }
 .dialogueResponse p {
   margin-top: 7px;
@@ -499,17 +534,18 @@
   min-height: 58px;
   flex: 1;
   resize: vertical;
-  border: 1px solid var(--line-soft);
+  border: 1px solid rgba(171, 148, 104, 0.28);
+  border-radius: 8px;
   outline: none;
   padding: 16px;
   color: var(--text-strong);
-  background: rgba(2, 8, 11, 0.76);
+  background: linear-gradient(180deg, rgba(5, 12, 14, 0.86), rgba(14, 20, 19, 0.92));
   font: inherit;
   font-size: 13px;
   line-height: 1.5;
 }
 
-.actionRow textarea:focus { border-color: var(--accent-dim); box-shadow: 0 0 0 2px rgba(91, 171, 176, 0.08); }
+.actionRow textarea:focus { border-color: rgba(211, 177, 113, 0.56); box-shadow: 0 0 0 2px rgba(211, 177, 113, 0.08), inset 0 0 28px rgba(211, 177, 113, 0.03); }
 .actionRow textarea::placeholder { color: #617178; }
 .actionRow textarea:disabled { cursor: wait; opacity: 0.62; }
 

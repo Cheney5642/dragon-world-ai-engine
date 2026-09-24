@@ -9,6 +9,7 @@ import {
   commitNpcRelationship,
   DragonWorldApiError,
   executeAction,
+  getSceneVisual,
   getWorldState,
   interactWithNpc,
   savedLives,
@@ -47,7 +48,7 @@ function locationSceneImage(location: Location): string | null {
 
 function formatInventoryItem(item: InventoryEntry): string {
   if (typeof item === "string") return item;
-  const name = item.name ?? item.id ?? UI_COPY.player.unknownItem;
+  const name = item.name ?? item.item_id ?? item.id ?? UI_COPY.player.unknownItem;
   return item.quantity && item.quantity > 1
     ? `${name} × ${item.quantity}`
     : name;
@@ -120,6 +121,15 @@ async function persistNpcMutationsSilently(
   // Persistence is deliberately independent from dialogue rendering. Rejected
   // commits are handled here without turning a successful NPC reply into an error.
   if (commits.length > 0) await Promise.allSettled(commits);
+}
+
+async function waitForSceneVisual(sourceEventId: string) {
+  for (let attempt = 0; attempt < 65; attempt += 1) {
+    const visual = await getSceneVisual(sourceEventId);
+    if (visual.status !== "pending") return visual;
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+  }
+  throw new Error("Scene visual polling timed out.");
 }
 
 function PanelTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
@@ -634,8 +644,26 @@ export function WorldShell() {
       const result = await executeAction({
         player_id: worldState.player.player_id,
         player_input: input,
+        defer_visual: true,
       });
       setActionResult(result);
+      if (result.scene_visual?.status === "pending") {
+        void waitForSceneVisual(result.source_event_id)
+          .then((visual) => {
+            setActionResult((current) =>
+              current?.source_event_id === result.source_event_id
+                ? { ...current, scene_visual: visual }
+                : current,
+            );
+          })
+          .catch(() => {
+            setActionResult((current) =>
+              current?.source_event_id === result.source_event_id && current.scene_visual
+                ? { ...current, scene_visual: { ...current.scene_visual, status: "failed" } }
+                : current,
+            );
+          });
+      }
       const latestWorld = await getWorldState();
       setWorldState(latestWorld);
       setWorldLogMessage(result.player_message);
@@ -855,7 +883,10 @@ export function WorldShell() {
           </section>
 
           <section className={styles.listSection}>
-            <h3>{UI_COPY.player.inventory}</h3>
+            <div className={styles.inventoryHeading}>
+              <h3>{UI_COPY.player.inventory}</h3>
+              <span>{player.inventory.length} / 12</span>
+            </div>
             {player.inventory.length ? (
               <ul className={styles.inventoryList}>
                 {player.inventory.map((item, index) => (
@@ -875,6 +906,7 @@ export function WorldShell() {
                 {UI_COPY.player.emptyInventory}
               </p>
             )}
+            <p className={styles.inventoryHint}>可拾取便携物品 · 同类最多 20 件</p>
           </section>
         </aside>
 
@@ -906,9 +938,11 @@ export function WorldShell() {
                 alt={UI_COPY.sceneVisual.generated}
               />
             ) : null}
-            {actionRunning ? (
+            {actionRunning || actionResult?.scene_visual?.status === "pending" ? (
               <div className={styles.sceneVisualLoading} aria-live="polite">
-                {UI_COPY.sceneVisual.loading}
+                {actionRunning
+                  ? UI_COPY.action.interpreting
+                  : UI_COPY.sceneVisual.loading}
               </div>
             ) : null}
             {!locationBackground ? <>
@@ -1062,7 +1096,7 @@ export function WorldShell() {
 
       <section ref={dialoguePanelRef} className={styles.dialoguePanel}>
         <div className={styles.consoleHeading}>
-          <span>{UI_COPY.npcDialogue.section}</span>
+          <span>{UI_COPY.npcDialogue.section(selectedNpc?.name)}</span>
           <p>
             {selectedNpc
               ? UI_COPY.npcDialogue.panelHint(selectedNpc.name)
@@ -1079,7 +1113,7 @@ export function WorldShell() {
         </div>
 
         <div className={styles.dialogueResponse} aria-live="polite">
-          <span>{UI_COPY.npcDialogue.response}</span>
+          <span>{UI_COPY.npcDialogue.response(selectedNpc?.name)}</span>
           {npcInteraction?.interaction_available === false ? (
             <p className={styles.dialogueUnavailable}>
               {npcInteraction.unavailable_reason ??
@@ -1181,12 +1215,11 @@ export function WorldShell() {
           <DragonInteractionPanel result={actionResult} />
         ) : actionResult &&
           !showRidingPanel &&
-          (!actionResult.location_discovery ||
-            actionResult.dragon_encounter.outcome !== "none") ? (
+          actionResult.dragon_encounter.outcome !== "none" ? (
           <DragonEncounterPanel result={actionResult} />
         ) : null}
         {actionResult?.scene_visual &&
-        actionResult.scene_visual.status !== "generated" ? (
+        ["disabled", "failed"].includes(actionResult.scene_visual.status) ? (
           <p className={styles.sceneVisualFallback}>
             {UI_COPY.sceneVisual.unavailable}
           </p>

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from jsonschema import ValidationError
@@ -17,6 +18,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.npc_api import register_npc_routes
 from core import action_pipeline
+from core.display_names import (
+    display_dragon_name,
+    display_location_name,
+    display_npc_name,
+    dragon_aliases,
+    localize_known_names,
+)
 from core.free_action_interpreter import (
     ActionInterpretationError as FreeActionInterpretationError,
     interpret_action as interpret_free_action,
@@ -26,6 +34,7 @@ from core.free_action_resolution import (
     commit_action_resolution,
     load_runtime_world_skeleton,
 )
+from core.food_ecology import choose_food_candidate, food_action_kind
 from core.dragon_encounter_decision import (
     EncounterDecisionError,
     decide_current_dragon_encounter,
@@ -105,6 +114,7 @@ class FreeActionExecuteRequest(BaseModel):
 
     player_id: str = Field(max_length=128)
     player_input: str = Field(max_length=4000)
+    defer_visual: bool = False
 
 
 class IdentityInitializeRequest(BaseModel):
@@ -189,7 +199,7 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
         nearby_npcs.append(
             {
                 "id": npc.get("id"),
-                "name": npc.get("name"),
+                "name": display_npc_name(npc.get("id"), npc.get("name")),
                 "species": npc.get("species"),
                 "occupation": npc.get("occupation"),
             }
@@ -231,7 +241,10 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
         },
         "current_location": {
             "id": current_location_id,
-            "name": current_location.get("name"),
+            "name": display_location_name(
+                current_location_id,
+                current_location.get("name"),
+            ),
             "type": current_location.get("type"),
             "description": current_location.get("description"),
         },
@@ -240,7 +253,14 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
         "riding": {
             "is_mounted": riding.get("mounted_dragon_id") is not None,
             "mounted_dragon_id": riding.get("mounted_dragon_id"),
-            "mounted_dragon_name": riding.get("mounted_dragon_name"),
+            "mounted_dragon_name": (
+                display_dragon_name(
+                    riding.get("mounted_dragon_id"),
+                    riding.get("mounted_dragon_name"),
+                )
+                if riding.get("mounted_dragon_id") is not None
+                else None
+            ),
         },
     }
 
@@ -248,11 +268,17 @@ def build_world_summary(world_state: dict[str, Any]) -> dict[str, Any]:
 def _public_dragon_summary(dragon: dict[str, Any]) -> dict[str, Any]:
     return {
         "dragon_id": dragon.get("dragon_id"),
-        "name": dragon.get("name"),
+        "name": display_dragon_name(
+            dragon.get("dragon_id"),
+            dragon.get("name"),
+        ),
         "appearance": copy.deepcopy(dragon.get("appearance", {})),
         "personality_traits": list(dragon.get("temperament_traits", [])),
         "behavior_state": dragon.get("behavior_state"),
-        "taming_state": dragon.get("taming_state"),
+        "taming_state": dragon.get(
+            "player_taming_state",
+            dragon.get("taming_state"),
+        ),
         "location": dragon.get("current_location"),
         "player_relationship": copy.deepcopy(
             dragon.get("player_relationship")
@@ -414,6 +440,12 @@ def _load_postgres_world(
                 player_id=player_id,
                 dragon_id=dragon["dragon_id"],
             )
+            dragon["player_taming_state"] = (
+                persistence.get_player_dragon_taming_state(
+                    player_id=player_id,
+                    dragon_id=dragon["dragon_id"],
+                )
+            )
         world_state["nearby_dragons"] = nearby_dragons
         riding = persistence.get_player_riding_state(player_id)
         mounted_id = riding["mounted_dragon_id"]
@@ -564,6 +596,16 @@ def _free_action_player_message(resolution: dict[str, Any]) -> str:
         "npc_runtime_required": "这个行动需要由 NPC Runtime 继续处理。",
         "conflict_runtime_unavailable": "这个冲突行动当前只能作为叙事意图记录。",
         "narrative_only": "这个行动已作为当前世界中的叙事行动记录。",
+        "item_acquired": "你把物品收进了背包。",
+        "item_target_missing": "请说明你想捡起什么。",
+        "item_target_invalid": "这个物品描述无法安全放入背包。",
+        "item_not_portable": "那不是可以放进背包的随身物品。",
+        "inventory_full": "背包的 12 个物品栏位已经装满了。",
+        "inventory_stack_limit_reached": "这种物品已经达到单格 20 件的上限。",
+        "inventory_invalid": "当前物品栏状态异常，无法加入新物品。",
+        "food_hunting_unavailable": "这里没有可安全狩猎的小型猎物；试着去林地或野外。",
+        "food_market_unavailable": "这里没有可购买食物的村庄摊位。",
+        "food_target_not_grounded": "这里找不到你指定的这种食物。",
     }
     if isinstance(reason_code, str) and reason_code in messages:
         return messages[reason_code]
@@ -574,9 +616,113 @@ def _free_action_player_message(resolution: dict[str, Any]) -> str:
     return "行动已经处理。"
 
 
+def _grounded_action_feedback(
+    *,
+    player_input: str,
+    structured_action: Mapping[str, Any],
+    resolution: Mapping[str, Any],
+    player_location: str,
+    world_skeleton: Mapping[str, Any],
+    persistence: PostgresPersistenceAdapter,
+    food_candidate: Mapping[str, str] | None = None,
+) -> str:
+    """Describe an ordinary action using only grounded runtime facts."""
+
+    if resolution.get("status") in {"blocked", "needs_clarification"}:
+        return _free_action_player_message(dict(resolution))
+
+    family = structured_action.get("action_family")
+    target = structured_action.get("target")
+    target_text = target.strip() if isinstance(target, str) else ""
+    if resolution.get("reason_code") == "item_acquired":
+        return f"你捡起{target_text or '这件物品'}，把它妥善放进了背包。"
+    if resolution.get("reason_code") in {"food_hunted", "food_bought"}:
+        food_name = (food_candidate or {}).get("name") or "一份肉食"
+        if resolution["reason_code"] == "food_hunted":
+            return f"你循着野地里的踪迹，猎得{food_name}，收进了背包。"
+        return f"你从村庄摊位买下{food_name}，放进了背包。"
+
+    locations = world_skeleton.get("locations")
+    location = (
+        locations.get(player_location)
+        if isinstance(locations, Mapping)
+        else None
+    )
+    location_name = (
+        display_location_name(player_location, location.get("name"))
+        if isinstance(location, Mapping) and location.get("name")
+        else display_location_name(player_location)
+    )
+    location_description = (
+        str(location.get("description") or "").strip()
+        if isinstance(location, Mapping)
+        else ""
+    )
+
+    normalized_input = player_input.casefold()
+    note_markers = ("记录", "笔记", "写下", "记下", "note", "write down")
+    if any(marker in normalized_input for marker in note_markers):
+        nearby_dragons = persistence.list_dragons_at_location(player_location)
+        mentioned = [
+            dragon
+            for dragon in nearby_dragons
+            if any(
+                alias.casefold() in normalized_input
+                for alias in dragon_aliases(
+                    dragon.get("dragon_id"), dragon.get("name")
+                )
+            )
+        ]
+        if len(mentioned) == 1:
+            dragon = mentioned[0]
+            traits = [
+                str(trait)
+                for trait in dragon.get("temperament_traits", [])
+                if str(trait).strip()
+            ]
+            age = {
+                "hatchling": "幼龙",
+                "juvenile": "年幼的龙",
+                "young_adult": "年轻的龙",
+                "adult": "成年龙",
+            }.get(str(dragon.get("age_stage")), "龙")
+            trait_text = "、".join(traits[:3]) or "仍需继续观察"
+            return (
+                "你翻开笔记本，记录下 "
+                f"{display_dragon_name(dragon.get('dragon_id'), dragon.get('name'))} 的性格："
+                f"“这是一条{trait_text}的{age}。”"
+            )
+        return f"你在笔记本上记下了此刻在 {location_name} 的观察。"
+
+    if family == "rest_wait":
+        return f"你在 {location_name} 停下脚步，给自己留出片刻安静。"
+    if family == "observe_search":
+        detail = location_description or "周围的风声与地貌逐渐清晰起来"
+        return f"你仔细观察 {location_name} 的四周。{detail}"
+    if family == "explore":
+        direction = structured_action.get("direction")
+        route = f"向{direction}" if isinstance(direction, str) else "沿着周围"
+        return f"你从 {location_name} {route}继续探索，留意沿途可以确认的线索。"
+    if family in {"other", "interact", "use_acquire", "create_trade"}:
+        action = str(structured_action.get("action") or player_input).strip()
+        action = action.rstrip("。！？.!?")
+        if action.startswith("我"):
+            action = action[1:].lstrip()
+        detail = location_description or "周围的声响与气息随你的动作产生了细微变化"
+        return f"你在 {location_name} {action}。{detail}"
+    return _free_action_player_message(dict(resolution))
+
+
 def _dragon_encounter_player_message(
     resolution: dict[str, Any],
     encounter: dict[str, Any],
+    *,
+    player_input: str,
+    structured_action: Mapping[str, Any],
+    player_location: str,
+    world_skeleton: Mapping[str, Any],
+    persistence: PostgresPersistenceAdapter,
+    food_candidate: Mapping[str, str] | None = None,
 ) -> str:
     outcome = encounter["outcome"]
     dragon = encounter.get("dragon")
@@ -587,13 +733,27 @@ def _dragon_encounter_player_message(
         return f"你发现了龙：{dragon_name}。"
     if outcome == "direct_encounter" and isinstance(dragon_name, str):
         return f"你与龙 {dragon_name} 正面相遇。"
-    return _free_action_player_message(resolution)
+    return _grounded_action_feedback(
+        player_input=player_input,
+        structured_action=structured_action,
+        resolution=resolution,
+        player_location=player_location,
+        world_skeleton=world_skeleton,
+        persistence=persistence,
+        food_candidate=food_candidate,
+    )
 
 
 _DRAGON_INTERACTION_MARKERS = (
     "观察",
     "注视",
     "看看",
+    "看着",
+    "看向",
+    "端详",
+    "打量",
+    "凝视",
+    "盯着",
     "靠近",
     "接近",
     "走向",
@@ -696,14 +856,33 @@ def _ground_dragon_interaction_target(
         if target_key
         and target_key
         in {
-            str(dragon.get("dragon_id") or "").casefold(),
-            str(dragon.get("name") or "").casefold(),
+            alias.casefold()
+            for alias in dragon_aliases(
+                dragon.get("dragon_id"), dragon.get("name")
+            )
         }
     ]
+    mentioned_matches = [
+        dragon
+        for dragon in nearby
+        if any(
+            alias.casefold() in text
+            for alias in dragon_aliases(
+                dragon.get("dragon_id"), dragon.get("name")
+            )
+        )
+    ]
+    grounded_matches = {
+        str(dragon.get("dragon_id")): dragon
+        for dragon in (*nearby_matches, *mentioned_matches)
+        if dragon.get("dragon_id")
+    }
     if committed_by_id is not None:
         return {"dragon": committed_by_id, "reason_code": None}
-    if len(nearby_matches) == 1:
-        return {"dragon": nearby_matches[0], "reason_code": None}
+    if len(grounded_matches) == 1:
+        return {"dragon": next(iter(grounded_matches.values())), "reason_code": None}
+    if len(grounded_matches) > 1:
+        return {"dragon": None, "reason_code": "dragon_target_ambiguous"}
 
     generic_target = target_key in _GENERIC_DRAGON_TARGETS
     references_dragon = any(marker in text for marker in _DRAGON_REFERENCE_MARKERS)
@@ -757,8 +936,12 @@ def _dragon_interaction_player_message(
         "patient_wait": f"你停下来耐心等待，{name} 仍在观察你。",
         "boundary_respected": f"你主动拉开距离。{name} 的戒备似乎稍稍缓和。",
         "cautious_approach": f"{name} 注意到了你的靠近，没有立即离开，但仍保持戒备。",
+        "tamed_dragon_welcomes_approach": (
+            f"{name} 熟悉你的气息，平静地接受了你的靠近。"
+        ),
         "calm_communication_acknowledged": f"你平静地向 {name} 说话。它没有回应，但开始认真观察你。",
         "grounded_food_offer_accepted": f"{name} 接受了你放下的食物。",
+        "preferred_food_accepted": f"{name} 闻到喜欢的肉食后主动靠近，吃下食物，对你明显更亲近了。",
         "offered_food_not_grounded": "你现在没有可供 Dragon 接受的明确食物。",
         "dragon_rejects_food_while_hostile": f"{name} 仍处于敌意中，没有接受食物。",
         "dragon_touch_not_grounded": f"{name} 还没有允许你靠得这么近。",
@@ -860,11 +1043,15 @@ def _committed_dragon_interaction_response(
         if formal_status in {"blocked", "needs_clarification"}
         else commit_result.get("status")
     )
+    dragon_name = display_dragon_name(
+        dragon.get("dragon_id"),
+        dragon.get("name"),
+    )
     interaction = {
         "status": public_status,
         "resolution_status": formal_status,
         "dragon_id": commit_result.get("dragon_id"),
-        "dragon_name": dragon.get("name"),
+        "dragon_name": dragon_name,
         "interaction_type": formal_result.get("interaction_type"),
         "dragon_reaction": formal_result.get("dragon_reaction"),
         "relationship_effect": formal_result.get("relationship_effect"),
@@ -879,7 +1066,7 @@ def _committed_dragon_interaction_response(
         "taming_transition": copy.deepcopy(commit_result.get("taming_transition")),
     }
     interaction["player_message"] = _dragon_interaction_player_message(
-        str(dragon.get("name") or "") or None,
+        dragon_name,
         interaction,
     )
     return interaction
@@ -925,6 +1112,69 @@ def create_app(
         load_world = lambda: _load_postgres_world(persistence_adapter)
 
     scene_image_provider = image_provider or create_scene_image_provider()
+    visual_results: dict[str, dict[str, Any]] = {}
+    visual_results_lock = threading.Lock()
+    dragon_visual_cache: dict[str, str] = {}
+    dragon_visual_cache_lock = threading.Lock()
+
+    def render_action_visual(payload: dict[str, Any], world: dict[str, Any]) -> dict[str, Any] | None:
+        if visual_trigger(payload) == "dragon_observation":
+            # Hold the lock through generation so simultaneous observations of
+            # one Dragon cannot create duplicate paid image requests.
+            with dragon_visual_cache_lock:
+                return render_scene_visual(
+                    action_result=payload,
+                    world=world,
+                    provider=scene_image_provider,
+                    image_cache=dragon_visual_cache,
+                )
+        return render_scene_visual(
+            action_result=payload,
+            world=world,
+            provider=scene_image_provider,
+        )
+
+    def store_visual_result(source_event_id: str, result: dict[str, Any]) -> None:
+        with visual_results_lock:
+            visual_results[source_event_id] = copy.deepcopy(result)
+            while len(visual_results) > 100:
+                visual_results.pop(next(iter(visual_results)))
+
+    def render_visual_in_background(
+        *,
+        source_event_id: str,
+        payload: dict[str, Any],
+        player_id: str,
+    ) -> None:
+        try:
+            visual_world = _load_postgres_world(
+                persistence_adapter,
+                player_id_override=player_id,
+            )
+            visual = render_action_visual(payload, build_world_summary(visual_world))
+            if visual is None:
+                visual = {
+                    "status": "failed",
+                    "trigger": visual_trigger(payload),
+                    "provider": scene_image_provider.name,
+                    "context_hash": None,
+                    "camera": None,
+                    "image_url": None,
+                }
+        except Exception as exc:
+            logger.error(
+                "deferred_scene_visual_failed exception_type=%s",
+                type(exc).__name__,
+            )
+            visual = {
+                "status": "failed",
+                "trigger": visual_trigger(payload),
+                "provider": scene_image_provider.name,
+                "context_hash": None,
+                "camera": None,
+                "image_url": None,
+            }
+        store_visual_result(source_event_id, visual)
 
     def story_view(player_id: str) -> dict[str, Any] | None:
         if fixture_mode or persistence_adapter is None:
@@ -932,19 +1182,38 @@ def create_app(
         story = persistence_adapter.get_personal_story(player_id)
         if story is None:
             return None
-        names = {npc["id"]: npc["name"] for npc in load_runtime_world_skeleton(
-            persistence_adapter, WORLD_SEED_PATH)["npcs"].values()}
+        names = {
+            npc["id"]: display_npc_name(npc["id"], npc["name"])
+            for npc in load_runtime_world_skeleton(
+                persistence_adapter, WORLD_SEED_PATH
+            )["npcs"].values()
+        }
+        def localized(value: Any) -> Any:
+            if isinstance(value, str):
+                return localize_known_names(value)
+            if isinstance(value, list):
+                return [localized(item) for item in value]
+            if isinstance(value, dict):
+                return {key: localized(item) for key, item in value.items()}
+            return copy.deepcopy(value)
+
         return {
-            "origin": story["origin"], "thread": story["thread"], "memories": story["memories"],
-            "recent_events": story["events"][-12:],
-            "active_event": next((event for event in reversed(story["events"]) if event["status"] == "open"), None),
+            "origin": localized(story["origin"]),
+            "thread": localized(story["thread"]),
+            "memories": localized(story["memories"]),
+            "recent_events": localized(story["events"][-12:]),
+            "active_event": localized(next((event for event in reversed(story["events"]) if event["status"] == "open"), None)),
             "npc_relationships": [{**row, "npc_name": names.get(row["npc_id"], row["npc_id"])}
                                   for row in persistence_adapter.list_player_npc_relationships(player_id)],
-            "world_changes": [memory for memory in story["memories"] if memory["world_changes"]],
+            "world_changes": localized([
+                memory for memory in story["memories"] if memory["world_changes"]
+            ]),
         }
 
     def with_scene_visual(
-        payload: dict[str, Any], *, player_id: str
+        payload: dict[str, Any], *, player_id: str,
+        background_tasks: BackgroundTasks | None = None,
+        defer_visual: bool = False,
     ) -> dict[str, Any]:
         if not fixture_mode:
             try:
@@ -956,7 +1225,11 @@ def create_app(
                         world=current_world, result=payload,
                     )
                     payload = {**payload, "story_update": update}
-                    if update:
+                    if (
+                        update
+                        and str(update.get("message") or "").strip()
+                        != str(payload.get("player_message") or "").strip()
+                    ):
                         payload["player_message"] += "\n" + update["message"]
             except Exception as exc:
                 # The base action was committed; do not invite the client to replay it.
@@ -967,6 +1240,24 @@ def create_app(
         trigger = visual_trigger(payload)
         if trigger is None:
             return {**payload, "scene_visual": None}
+        if defer_visual and background_tasks is not None:
+            source_event_id = payload["source_event_id"]
+            pending = {
+                "status": "pending",
+                "trigger": trigger,
+                "provider": scene_image_provider.name,
+                "context_hash": None,
+                "camera": None,
+                "image_url": None,
+            }
+            store_visual_result(source_event_id, pending)
+            background_tasks.add_task(
+                render_visual_in_background,
+                source_event_id=source_event_id,
+                payload=copy.deepcopy(payload),
+                player_id=player_id,
+            )
+            return {**payload, "scene_visual": pending}
         try:
             visual_world = (
                 load_world()
@@ -976,11 +1267,7 @@ def create_app(
                 )
             )
             world_summary = build_world_summary(visual_world)
-            visual = render_scene_visual(
-                action_result=payload,
-                world=world_summary,
-                provider=scene_image_provider,
-            )
+            visual = render_action_visual(payload, world_summary)
         except Exception:
             visual = {
                 "status": "failed",
@@ -1012,6 +1299,17 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "dragon-world-api"}
 
+    @application.get("/api/visual/{source_event_id}")
+    def get_scene_visual(source_event_id: str) -> dict[str, Any]:
+        with visual_results_lock:
+            result = visual_results.get(source_event_id)
+            if result is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Scene visual task is not available.",
+                )
+            return copy.deepcopy(result)
+
     @application.get("/api/world")
     def get_world(player_id: str | None = None) -> dict[str, Any]:
         try:
@@ -1022,7 +1320,11 @@ def create_app(
             if story is not None:
                 summary["personal_story"] = story
                 summary["known_locations"] = [
-                    {"id": key, "name": value["name"]} for key, value in loaded["locations"].items()
+                    {
+                        "id": key,
+                        "name": display_location_name(key, value["name"]),
+                    }
+                    for key, value in loaded["locations"].items()
                 ]
             return summary
         except HTTPException:
@@ -1241,7 +1543,10 @@ def create_app(
             raise _pipeline_http_error(exc) from exc
 
     @application.post("/api/action/execute")
-    def execute_free_action(request: FreeActionExecuteRequest) -> dict[str, Any]:
+    def execute_free_action(
+        request: FreeActionExecuteRequest,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, Any]:
         player_id = request.player_id.strip()
         player_input = request.player_input.strip()
         if not player_id:
@@ -1271,12 +1576,26 @@ def create_app(
             runtime_skeleton = load_runtime_world_skeleton(
                 persistence_adapter, WORLD_SEED_PATH
             )
+            food_candidate = None
+            food_kind_action = food_action_kind(structured_action)
+            if food_kind_action is not None and structured_action.get("action_family") != "travel":
+                player_state = persistence_adapter.get_player_state(player_id)
+                location_id = player_state["current_location"] if player_state else ""
+                location = runtime_skeleton["locations"].get(location_id)
+                if isinstance(location, Mapping):
+                    food_candidate = choose_food_candidate(
+                        structured_action,
+                        location_id=location_id,
+                        location=location,
+                        provider_client=action_provider_client,
+                    )
             committed = commit_action_resolution(
                 player_id=player_id,
                 player_input=player_input,
                 structured_action=structured_action,
                 persistence=persistence_adapter,
                 world_skeleton=runtime_skeleton,
+                food_candidate=food_candidate,
             )
             resolution = committed["resolution"]
             source_event_id = committed["interaction_event"]["event_id"]
@@ -1292,6 +1611,14 @@ def create_app(
                 if riding_operation is not None
                 else None
             )
+            if dragon_riding is not None and dragon_riding.get("dragon_id"):
+                dragon_riding = {
+                    **dragon_riding,
+                    "dragon_name": display_dragon_name(
+                        dragon_riding.get("dragon_id"),
+                        dragon_riding.get("dragon_name"),
+                    ),
+                }
             if dragon_riding is not None and not (
                 dragon_riding["status"] == "blocked"
                 and dragon_riding["operation"] == "mount"
@@ -1307,7 +1634,8 @@ def create_app(
                     "dragon_interaction": None,
                     "dragon_riding": dragon_riding,
                     "location_discovery": None,
-                }, player_id=player_id)
+                }, player_id=player_id, background_tasks=background_tasks,
+                    defer_visual=request.defer_visual)
 
             location_discovery: dict[str, Any] | None = None
             if is_location_discovery_eligible(structured_action, resolution):
@@ -1382,7 +1710,8 @@ def create_app(
                     "dragon_interaction": dragon_interaction,
                     "dragon_riding": dragon_riding,
                     "location_discovery": None,
-                }, player_id=player_id)
+                }, player_id=player_id, background_tasks=background_tasks,
+                    defer_visual=request.defer_visual)
 
             decision = decide_current_dragon_encounter(
                 player_id=player_id,
@@ -1424,6 +1753,18 @@ def create_app(
                     raise PersistenceMappingError(
                         "Final Dragon encounter references a missing Dragon."
                     )
+                persisted_dragon["player_relationship"] = (
+                    persistence_adapter.get_player_dragon_bond(
+                        player_id=player_id,
+                        dragon_id=decision["dragon_id"],
+                    )
+                )
+                persisted_dragon["player_taming_state"] = (
+                    persistence_adapter.get_player_dragon_taming_state(
+                        player_id=player_id,
+                        dragon_id=decision["dragon_id"],
+                    )
+                )
                 committed_dragon = _public_dragon_summary(persisted_dragon)
                 encounter_source = "existing"
 
@@ -1435,6 +1776,12 @@ def create_app(
             player_message = _dragon_encounter_player_message(
                 resolution,
                 dragon_encounter,
+                player_input=player_input,
+                structured_action=structured_action,
+                player_location=committed["player_state"]["current_location"],
+                world_skeleton=runtime_skeleton,
+                persistence=persistence_adapter,
+                food_candidate=food_candidate,
             )
             if location_discovery is not None:
                 discovery_message = _location_discovery_player_message(
@@ -1454,7 +1801,8 @@ def create_app(
                 "dragon_interaction": None,
                 "dragon_riding": dragon_riding,
                 "location_discovery": location_discovery,
-            }, player_id=player_id)
+            }, player_id=player_id, background_tasks=background_tasks,
+                defer_visual=request.defer_visual)
         except HTTPException:
             raise
         except Exception as exc:

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping, Sequence
-from numbers import Real
 from typing import Any
 
 from core.free_action_interpreter import (
     ActionInterpretationError,
     validate_action_interpretation,
 )
+from core.food_ecology import favorite_food_kind, mentioned_food_kind, select_food_item
 
 
 INTERACTION_TYPES = {
@@ -97,11 +97,30 @@ def _interaction_type(action: Mapping[str, Any]) -> str:
 
     text = _normalized_text(action)
     family = action["action_family"]
+    threat_text = text
+    for peaceful_phrase in (
+        "不做任何威胁动作",
+        "不做威胁动作",
+        "不作任何威胁动作",
+        "不作威胁动作",
+        "不表现出任何威胁",
+        "不表现出威胁",
+        "没有任何威胁",
+        "没有威胁",
+        "无威胁",
+        "不构成威胁",
+        "无意伤害",
+        "不会伤害",
+        "non-threatening",
+        "not a threat",
+        "harmless",
+    ):
+        threat_text = threat_text.replace(peaceful_phrase, "")
 
     if _contains_any(text, ("骑", "ride", "mount")):
         return "ride_attempt"
     if family == "conflict" or _contains_any(
-        text,
+        threat_text,
         ("威胁", "恐吓", "攻击", "杀", "挥剑", "threat", "attack", "kill"),
     ):
         return "threaten"
@@ -109,6 +128,8 @@ def _interaction_type(action: Mapping[str, Any]) -> str:
         family in {"interact", "use_acquire", "other"}
         or _contains_any(text, ("放下", "递给", "给它", "offer", "leave"))
     ):
+        return "offer_food"
+    if family == "interact" and _contains_any(text, ("递给", "喂给", "投喂", "offer")) and mentioned_food_kind(text):
         return "offer_food"
     if _contains_any(text, ("触碰", "触摸", "摸", "抱", "touch", "pet", "hug")):
         return "touch"
@@ -142,7 +163,12 @@ def _interaction_type(action: Mapping[str, Any]) -> str:
 def _is_careful(action: Mapping[str, Any]) -> bool:
     return _contains_any(
         _normalized_text(action),
-        ("慢慢", "缓慢", "小心", "轻声", "平静", "careful", "slow", "calm"),
+        (
+            "慢慢", "缓慢", "缓步", "小心", "轻轻", "轻声", "平静",
+            "没有威胁", "无威胁", "不构成威胁", "不做任何威胁动作",
+            "不做威胁动作", "不表现出威胁", "放低姿态",
+            "careful", "slow", "calm", "non-threatening", "harmless",
+        ),
     )
 
 
@@ -208,24 +234,6 @@ def _dragon_snapshot(
     if result["taming_state"] not in TAMING_STATES:
         raise DragonInteractionResolutionError("Dragon taming_state is invalid.")
     return result
-
-
-def _has_grounded_food(inventory: Sequence[Any]) -> bool:
-    """Accept only an explicitly structured food resource; strings are not taxonomy."""
-
-    for item in inventory:
-        if not isinstance(item, Mapping):
-            continue
-        category = item.get("category", item.get("type"))
-        quantity = item.get("quantity", 1)
-        if (
-            category == "food"
-            and isinstance(quantity, Real)
-            and not isinstance(quantity, bool)
-            and quantity > 0
-        ):
-            return True
-    return False
 
 
 def _history_interaction_type(record: Mapping[str, Any]) -> str | None:
@@ -543,10 +551,17 @@ def resolve_dragon_interaction(
         proposed.update(familiarity=1, trust=1, fear=-1)
         reason = "boundary_respected"
     elif interaction_type == "approach":
-        reckless = _is_reckless(structured_action) or not _is_careful(structured_action)
+        explicitly_reckless = _is_reckless(structured_action)
+        reckless = explicitly_reckless or not _is_careful(structured_action)
         unsafe = behavior in {"threatening", "attacking", "avoiding"}
         archetype_sensitive = archetype == "agile_wild" and taming == "wild"
-        if reckless and (unsafe or archetype_sensitive or archetype == "powerful_wild"):
+        if taming == "tamed" and not explicitly_reckless:
+            reaction = "accepting"
+            effect = "positive"
+            category = "close_presence"
+            proposed.update(familiarity=1, trust=1)
+            reason = "tamed_dragon_welcomes_approach"
+        elif reckless and (unsafe or archetype_sensitive or archetype == "powerful_wild"):
             status = "blocked"
             reaction = "defensive"
             effect = "negative"
@@ -569,7 +584,8 @@ def resolve_dragon_interaction(
         proposed.update(familiarity=1, trust=1)
         reason = "calm_communication_acknowledged"
     elif interaction_type == "offer_food":
-        if not _has_grounded_food(player_inventory):
+        offered_item = select_food_item(player_inventory, structured_action)
+        if offered_item is None:
             status = "blocked"
             reaction = "wary"
             reason = "offered_food_not_grounded"
@@ -582,7 +598,14 @@ def resolve_dragon_interaction(
             effect = "positive"
             category = "food"
             proposed.update(familiarity=1, trust=1, fear=-1)
-            reason = "grounded_food_offer_accepted"
+            offered_kind = offered_item.get("food_kind") or mentioned_food_kind(
+                str(offered_item.get("name") or "")
+            )
+            if offered_kind and offered_kind == favorite_food_kind(dragon_value):
+                proposed.update(trust=2, bond=1)
+                reason = "preferred_food_accepted"
+            else:
+                reason = "grounded_food_offer_accepted"
     elif interaction_type == "touch":
         safe_touch = (
             taming in {"tolerant", "bonding", "tamed"}

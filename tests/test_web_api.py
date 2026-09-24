@@ -10,12 +10,13 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 from sqlalchemy import delete, func, select
 
-from api.app import app, create_app
+from api.app import _grounded_action_feedback, app, create_app
 from core.action_pipeline import ActionPipelineResources
 from database import create_database_engine, create_session_factory
 from database.models import (
@@ -549,6 +550,92 @@ class FreeActionExecuteApiTests(unittest.TestCase):
                     ],
                     "skeld_village",
                 )
+
+    def test_grounded_note_feedback_uses_real_dragon_traits(self) -> None:
+        persistence = SimpleNamespace(
+            list_dragons_at_location=lambda _location: [{
+                "name": "Kael",
+                "age_stage": "juvenile",
+                "temperament_traits": ["胆小", "好奇"],
+            }]
+        )
+        message = _grounded_action_feedback(
+            player_input="我掏出笔记本记录了 Kael 的性格",
+            structured_action={
+                "action_family": "other",
+                "action": "记录 Kael 的性格",
+                "target": "Kael",
+            },
+            resolution={
+                "status": "success",
+                "reason_code": "narrative_only",
+            },
+            player_location="skeld_village",
+            world_skeleton={
+                "locations": {
+                    "skeld_village": {
+                        "name": "Skeld",
+                        "description": "寒冷的海港村落",
+                    }
+                }
+            },
+            persistence=persistence,
+        )
+        self.assertIn("凯尔", message)
+        self.assertIn("胆小、好奇", message)
+        self.assertIn("笔记本", message)
+
+    def test_buying_fish_returns_grounded_feedback_and_food_inventory(self) -> None:
+        status, payload, provider = self._execute(
+            "我在斯凯尔德买一条鱼。",
+            {
+                "action_family": "create_trade",
+                "action": "在斯凯尔德买一条鱼",
+                "target": "鱼",
+                "destination": None,
+                "direction": None,
+                "intent": None,
+                "method": None,
+                "explicit_goal": None,
+                "needs_clarification": False,
+            },
+        )
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(provider.calls, ["free_action_interpretation"])
+        self.assertEqual(payload["resolution"]["reason_code"], "food_bought")
+        self.assertIn("鲜鱼", payload["player_message"])
+        self.assertEqual(
+            self.persistence.get_player_state(self.player_id)["inventory"][0]["food_kind"],
+            "fish",
+        )
+
+    def test_ordinary_action_feedback_is_contextual_without_meta_copy(self) -> None:
+        persistence = SimpleNamespace(list_dragons_at_location=lambda _location: [])
+        message = _grounded_action_feedback(
+            player_input="我点起一盏小灯。",
+            structured_action={
+                "action_family": "other",
+                "action": "点起一盏小灯",
+                "target": "小灯",
+            },
+            resolution={
+                "status": "success",
+                "reason_code": "narrative_only",
+            },
+            player_location="skeld_village",
+            world_skeleton={
+                "locations": {
+                    "skeld_village": {
+                        "name": "Skeld",
+                        "description": "寒风掠过港湾，渔船在潮声中轻轻摇晃。",
+                    }
+                }
+            },
+            persistence=persistence,
+        )
+        self.assertIn("点起一盏小灯", message)
+        self.assertIn("寒风掠过港湾", message)
+        self.assertNotIn("周围的人与事会记住真实发生的部分", message)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from core.display_names import dragon_aliases
 from database.models import (
     Dragon,
     DragonEvent,
@@ -165,20 +166,27 @@ class PostgresPersistenceAdapter:
             return _player_state_record(record) if record is not None else None
 
     def has_rideable_dragon(self, player_id: str) -> bool:
-        """Read the existing Dragon/Bond authorization without mutation."""
+        """Return whether this Player has personally tamed any Dragon.
 
-        statement = (
-            select(PlayerDragonBond.player_id)
-            .join(Dragon, Dragon.dragon_id == PlayerDragonBond.dragon_id)
-            .where(
-                PlayerDragonBond.player_id == player_id,
-                PlayerDragonBond.riding_unlocked.is_(True),
-                Dragon.taming_state == "tamed",
-            )
-            .limit(1)
+        ``riding_unlocked`` records the first accepted mount, not the gate that
+        decides whether a first mount may be attempted.  Taming is scoped to a
+        Player/Dragon history even though the legacy Dragon row keeps the most
+        advanced aggregate state.
+        """
+
+        statement = select(PlayerDragonBond.dragon_id).where(
+            PlayerDragonBond.player_id == player_id
         )
         with self._read_session() as session:
-            return session.scalar(statement) is not None
+            return any(
+                _player_dragon_taming_state(
+                    session,
+                    player_id=player_id,
+                    dragon_id=dragon_id,
+                )
+                == "tamed"
+                for dragon_id in session.scalars(statement).all()
+            )
 
     def list_dragons_at_location(
         self,
@@ -218,6 +226,21 @@ class PostgresPersistenceAdapter:
                 _player_dragon_bond_state(record)
                 if record is not None
                 else None
+            )
+
+    def get_player_dragon_taming_state(
+        self,
+        *,
+        player_id: str,
+        dragon_id: str,
+    ) -> str:
+        """Read the effective taming state for one Player/Dragon pair."""
+
+        with self._read_session() as session:
+            return _player_dragon_taming_state(
+                session,
+                player_id=player_id,
+                dragon_id=dragon_id,
             )
 
     def get_player_riding_state(self, player_id: str) -> dict[str, Any]:
@@ -329,11 +352,16 @@ class PostgresPersistenceAdapter:
             dragon_event: DragonEvent | None = None
             mounted_id = riding_state["mounted_dragon_id"]
             riding_unlocked = bool(bond and bond.riding_unlocked)
+            player_taming_state = _player_dragon_taming_state(
+                session,
+                player_id=player_id,
+                dragon_id=dragon_id,
+            )
 
             if operation == "mount":
                 if bond is None:
                     status, reason_code = "blocked", "riding_bond_missing"
-                elif dragon.taming_state != "tamed":
+                elif player_taming_state != "tamed":
                     status, reason_code = "blocked", "riding_dragon_not_tamed"
                 elif player_state.current_location != dragon.current_location:
                     status, reason_code = "blocked", "riding_location_mismatch"
@@ -341,11 +369,6 @@ class PostgresPersistenceAdapter:
                     status, reason_code = "blocked", "riding_archetype_not_rideable"
                 elif dragon.age_stage not in {"young_adult", "adult"}:
                     status, reason_code = "blocked", "riding_dragon_not_mature"
-                elif bond.trust < 4 or bond.bond < 3 or bond.fear > 1:
-                    status, reason_code = (
-                        "blocked",
-                        "riding_bond_threshold_not_met",
-                    )
                 elif mounted_id not in {None, dragon_id}:
                     status, reason_code = (
                         "blocked",
@@ -404,7 +427,7 @@ class PostgresPersistenceAdapter:
                     status, reason_code = "blocked", "riding_not_unlocked"
                 elif mounted_id != dragon_id:
                     status, reason_code = "blocked", "riding_not_mounted"
-                elif dragon.taming_state != "tamed":
+                elif player_taming_state != "tamed":
                     status, reason_code = "blocked", "riding_dragon_not_tamed"
                 elif player_state.current_location != dragon.current_location:
                     status, reason_code = "blocked", "riding_location_mismatch"
@@ -608,17 +631,35 @@ class PostgresPersistenceAdapter:
                 dragon_id=dragon_id,
                 exclude_event_id=source_interaction_event_id,
             )
+            player_taming_state = _player_dragon_taming_state(
+                session,
+                player_id=player_id,
+                dragon_id=dragon_id,
+                history=history,
+            )
             positive_categories = _grounded_positive_categories(
                 history,
                 allowed=POSITIVE_CATEGORIES,
             )
+
+            player_dragon = _dragon_record(dragon)
+            player_dragon["taming_state"] = player_taming_state
+            player_dragon["habitat_location"] = session.scalar(
+                select(DragonEvent.location_id)
+                .where(
+                    DragonEvent.dragon_id == dragon_id,
+                    DragonEvent.event_type == "dragon_first_encounter",
+                )
+                .order_by(DragonEvent.world_day, DragonEvent.world_hour, DragonEvent.event_id)
+                .limit(1)
+            ) or dragon.current_location
 
             resolution = resolve_dragon_interaction(
                 structured_action,
                 source_interaction_event_id=source_interaction_event_id,
                 player_id=player_id,
                 dragon_id=dragon_id,
-                dragon=_dragon_record(dragon),
+                dragon=player_dragon,
                 player_location=player_state.current_location,
                 bond=bond_snapshot,
                 recent_history=history,
@@ -630,7 +671,7 @@ class PostgresPersistenceAdapter:
                 field: bond_snapshot[field]
                 for field in BOND_BOUNDS
             }
-            before["taming_state"] = dragon.taming_state
+            before["taming_state"] = player_taming_state
             proposed = resolution["state_changes"]
             may_apply = resolution["status"] in {"success", "partial"}
             applied_deltas: dict[str, int] = {}
@@ -646,7 +687,8 @@ class PostgresPersistenceAdapter:
 
             if resolution["interaction_type"] == "offer_food" and may_apply:
                 player_state.inventory = _consume_grounded_food_item(
-                    player_state.inventory
+                    player_state.inventory,
+                    structured_action,
                 )
 
             has_relationship_change = any(applied_deltas.values())
@@ -689,14 +731,27 @@ class PostgresPersistenceAdapter:
                 else None
             )
             transition = _validated_taming_transition(
-                dragon.taming_state,
+                player_taming_state,
                 next_state,
             )
             if transition is not None:
-                dragon.taming_state = transition["to"]
+                aggregate_order = {
+                    "wild": 0,
+                    "tolerant": 1,
+                    "bonding": 2,
+                    "tamed": 3,
+                }
+                if aggregate_order[transition["to"]] > aggregate_order[
+                    dragon.taming_state
+                ]:
+                    dragon.taming_state = transition["to"]
 
             after = dict(after_values)
-            after["taming_state"] = dragon.taming_state
+            after["taming_state"] = (
+                transition["to"]
+                if transition is not None
+                else player_taming_state
+            )
             dragon_event: DragonEvent | None = None
             grounded_event_type = (
                 "dragon_tamed"
@@ -780,7 +835,7 @@ class PostgresPersistenceAdapter:
                     if bond is not None
                     else _empty_player_dragon_bond_state()
                 ),
-                "taming_state": dragon.taming_state,
+                "taming_state": after["taming_state"],
                 "taming_transition": transition,
                 "applied_deltas": applied_deltas,
                 "positive_categories": positive_categories,
@@ -1140,12 +1195,15 @@ class PostgresPersistenceAdapter:
         player_id: str,
         expected_current_location: str,
         expected_goals: Sequence[str],
+        expected_inventory: Sequence[Any],
         state_changes: Mapping[str, Any],
         event: Mapping[str, Any],
     ) -> dict[str, Any]:
         """Atomically commit one allowlisted D2 effect and Interaction Event."""
 
-        if not set(state_changes).issubset({"current_location", "goals"}):
+        if not set(state_changes).issubset(
+            {"current_location", "goals", "inventory"}
+        ):
             raise PersistenceMappingError("D2 state change is outside the allowlist.")
         world_context = _required_mapping(event, "world_context")
         event_payload = _required_mapping(event, "event_payload")
@@ -1160,6 +1218,7 @@ class PostgresPersistenceAdapter:
             if (
                 player_state.current_location != expected_current_location
                 or list(player_state.goals) != list(expected_goals)
+                or list(player_state.inventory) != list(expected_inventory)
             ):
                 raise PersistenceMappingError("PlayerState changed before D2 commit.")
 
@@ -1175,6 +1234,11 @@ class PostgresPersistenceAdapter:
                 ):
                     raise PersistenceMappingError("goals change is invalid.")
                 player_state.goals = list(new_goals)
+            new_inventory = state_changes.get("inventory")
+            if new_inventory is not None:
+                if not isinstance(new_inventory, list):
+                    raise PersistenceMappingError("inventory change is invalid.")
+                player_state.inventory = copy.deepcopy(new_inventory)
 
             record = InteractionEvent(
                 event_id=event["event_id"],
@@ -1863,12 +1927,21 @@ def _validate_dragon_interaction_target(
     domain_route = d2_resolution.get("domain_route")
     if status not in {"success", "partial", "blocked", "needs_clarification"}:
         raise PersistenceMappingError("D2 source resolution status is invalid.")
-    target = structured_action.get("target")
-    target_matches = isinstance(target, str) and target.strip().casefold() in {
-        dragon.dragon_id.casefold(),
-        (dragon.name or "").casefold(),
+    aliases = {
+        alias.casefold()
+        for alias in dragon_aliases(dragon.dragon_id, dragon.name)
     }
-    if domain_route != "dragon" and not target_matches:
+    target = structured_action.get("target")
+    target_matches = (
+        isinstance(target, str)
+        and target.strip().casefold() in aliases
+    )
+    action_text = " ".join(
+        str(structured_action.get(field) or "").strip().casefold()
+        for field in ("action", "target", "intent", "method")
+    )
+    named_in_action = any(alias in action_text for alias in aliases)
+    if domain_route != "dragon" and not (target_matches or named_in_action):
         raise PersistenceMappingError(
             "Source Action is not grounded to the requested Dragon."
         )
@@ -1917,6 +1990,89 @@ def _committed_dragon_interactions(
     return history
 
 
+def _player_dragon_taming_state(
+    session: Session,
+    *,
+    player_id: str,
+    dragon_id: str,
+    history: Sequence[Mapping[str, Any]] | None = None,
+) -> str:
+    """Derive taming from this Player's committed evidence only.
+
+    A legacy ``dragons.taming_state`` is an aggregate world field and must not
+    make a newly created Player inherit another Player's bond.  The tamed
+    milestone is authoritative; lower progress comes from the latest committed
+    D4 interaction.  Old incorrectly projected ``tamed`` snapshots without a
+    matching milestone are deliberately ignored.
+    """
+
+    tamed_events = session.scalars(
+        select(DragonEvent)
+        .where(
+            DragonEvent.player_id == player_id,
+            DragonEvent.dragon_id == dragon_id,
+            DragonEvent.event_type == "dragon_tamed",
+        )
+        .order_by(DragonEvent.recorded_at)
+    ).all()
+    for tamed_event in tamed_events:
+        if tamed_event.source_interaction_event_id is None:
+            return "tamed"
+        source = session.get(
+            InteractionEvent,
+            tamed_event.source_interaction_event_id,
+        )
+        payload = source.event_payload if source is not None else None
+        interaction = (
+            payload.get("dragon_interaction")
+            if isinstance(payload, Mapping)
+            else None
+        )
+        after = (
+            interaction.get("after")
+            if isinstance(interaction, Mapping)
+            else None
+        )
+        if (
+            isinstance(after, Mapping)
+            and interaction.get("is_final") is True
+            and interaction.get("player_id") == player_id
+            and interaction.get("dragon_id") == dragon_id
+            and after.get("taming_state") == "tamed"
+        ):
+            return "tamed"
+
+    interactions = (
+        list(history)
+        if history is not None
+        else _committed_dragon_interactions(
+            session,
+            player_id=player_id,
+            dragon_id=dragon_id,
+        )
+    )
+    for interaction in interactions:
+        after = interaction.get("after")
+        if not isinstance(after, Mapping):
+            continue
+        state = after.get("taming_state")
+        if state in {"wild", "tolerant", "bonding"}:
+            return str(state)
+
+    bond = session.get(PlayerDragonBond, (player_id, dragon_id))
+    dragon = session.get(Dragon, dragon_id)
+    if (
+        bond is not None
+        and dragon is not None
+        and dragon.taming_state == "tamed"
+        and bond.riding_unlocked
+    ):
+        # An already unlocked legacy rider is sufficient evidence of personal
+        # taming even when its older recovery row has no milestone event.
+        return "tamed"
+    return "wild"
+
+
 def _grounded_positive_categories(
     history: Sequence[Mapping[str, Any]],
     *,
@@ -1954,30 +2110,32 @@ def _empty_player_dragon_bond_state() -> dict[str, Any]:
     }
 
 
-def _consume_grounded_food_item(inventory: Sequence[Any]) -> list[Any]:
+def _consume_grounded_food_item(
+    inventory: Sequence[Any], action: Mapping[str, Any]
+) -> list[Any]:
     """Decrement one explicit food item; ambiguous inventory fails closed."""
 
+    from core.food_ecology import select_food_item
+
     updated = [dict(item) if isinstance(item, Mapping) else item for item in inventory]
-    candidates: list[tuple[int, dict[str, Any]]] = []
-    for index, item in enumerate(updated):
-        if not isinstance(item, dict):
-            continue
-        category = item.get("category", item.get("type"))
-        quantity = item.get("quantity")
-        if (
-            category == "food"
-            and isinstance(item.get("item_id"), str)
-            and item["item_id"].strip()
-            and isinstance(quantity, int)
-            and not isinstance(quantity, bool)
-            and quantity > 0
-        ):
-            candidates.append((index, item))
-    if len(candidates) != 1:
+    selected = select_food_item(updated, action)
+    item_key = (
+        "item_id" if selected is not None and isinstance(selected.get("item_id"), str)
+        else "id"
+    )
+    if selected is None or not isinstance(selected.get(item_key), str):
         raise PersistenceMappingError(
             "Food consumption requires exactly one explicit consumable item."
         )
-    index, item = candidates[0]
+    matches = [
+        index for index, item in enumerate(updated)
+        if isinstance(item, Mapping) and item.get(item_key) == selected[item_key]
+    ]
+    if len(matches) != 1:
+        raise PersistenceMappingError("Food consumption target is ambiguous.")
+    index = matches[0]
+    item = updated[index]
+    assert isinstance(item, dict)
     if item["quantity"] == 1:
         del updated[index]
     else:

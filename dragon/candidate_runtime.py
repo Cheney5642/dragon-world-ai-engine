@@ -331,6 +331,10 @@ def ground_dragon_candidate(
         raise DragonCandidateError("Encounter Location is not authored World Truth.")
 
     name = _non_blank(candidate["name"], "name")
+    if not re.search(r"[\u4e00-\u9fff]", name) or re.search(r"[A-Za-z]", name):
+        raise DragonCandidateError(
+            "Dragon Candidate name must be written in Chinese."
+        )
     appearance = candidate["appearance"]
     description = _non_blank(appearance["description"], "appearance.description")
     features = [

@@ -10,6 +10,13 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Mapping
 
+from core.display_names import location_aliases, npc_aliases
+from core.food_ecology import (
+    FOODS,
+    available_food,
+    explicit_food_candidate,
+    food_action_kind,
+)
 from core.free_action_interpreter import validate_action_interpretation
 from database.persistence import PostgresPersistenceAdapter
 
@@ -18,6 +25,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORLD_SEED_PATH = PROJECT_ROOT / "data" / "world_seed.json"
 OUTCOMES = {"success", "partial", "blocked", "needs_clarification"}
 EFFECT_SCOPES = {"narrative_only", "player_state", "domain_route"}
+INVENTORY_SLOT_LIMIT = 12
+INVENTORY_STACK_LIMIT = 20
+
+_PICKUP_MARKERS = (
+    "捡", "拾", "拿起", "收起", "放进背包", "装进背包",
+    "pick up", "pickup", "collect", "put in my bag",
+)
+_NON_PORTABLE_ITEM_MARKERS = (
+    "龙", "dragon", "npc", "人", "村民", "房", "屋", "建筑",
+    "山", "悬崖", "树", "船", "遗迹", "尸体", "活物",
+)
 
 
 class ActionResolutionError(RuntimeError):
@@ -77,7 +95,7 @@ def validate_resolution_result(result: Mapping[str, Any]) -> None:
         raise ActionResolutionError("Action Resolution domain_route is invalid.")
     changes = result["state_changes"]
     if not isinstance(changes, dict) or not set(changes).issubset(
-        {"current_location", "goals"}
+        {"current_location", "goals", "inventory"}
     ):
         raise ActionResolutionError("Action Resolution state_changes are invalid.")
     if result["effect_scope"] == "player_state" and not changes:
@@ -120,7 +138,7 @@ def _resolve_destination(
     for location_id, location in locations.items():
         if not isinstance(location, Mapping):
             raise ActionResolutionError("World skeleton contains an invalid Location.")
-        names = {str(location_id), str(location.get("name") or "")}
+        names = location_aliases(location_id, location.get("name"))
         if wanted in {_normalized(name) for name in names if name}:
             matches.append(str(location_id))
     return matches[0] if len(matches) == 1 else None
@@ -143,7 +161,7 @@ def _resolve_npc_target(
         npc_name = npc.get("name")
         if not isinstance(npc_id, str) or not isinstance(npc_name, str):
             return None
-        identifiers = {npc_key, npc_id, npc_name}
+        identifiers = {npc_key, *npc_aliases(npc_id, npc_name)}
         if wanted in {_normalized(identifier) for identifier in identifiers}:
             matches.append(npc_id)
     return matches[0] if len(matches) == 1 else None
@@ -212,6 +230,98 @@ def _dragon_riding_intent(action: Mapping[str, Any]) -> bool:
     )
 
 
+def _pickup_text(action: Mapping[str, Any]) -> str:
+    return " ".join(
+        str(action.get(field) or "")
+        for field in ("action", "target", "intent", "method")
+    ).strip().casefold()
+
+
+def _portable_item_name(
+    action: Mapping[str, Any],
+    npcs: Mapping[str, Any] | None,
+) -> tuple[str | None, str | None]:
+    """Return a grounded carryable display name or a rejection reason."""
+
+    text = _pickup_text(action)
+    if not any(marker in text for marker in _PICKUP_MARKERS):
+        return None, None
+    target = action.get("target")
+    if not isinstance(target, str) or not target.strip():
+        return None, "item_target_missing"
+    name = target.strip()
+    normalized = _normalized(name)
+    if len(name) > 40 or len(normalized) < 1:
+        return None, "item_target_invalid"
+    if any(marker in normalized for marker in _NON_PORTABLE_ITEM_MARKERS):
+        return None, "item_not_portable"
+    if isinstance(npcs, Mapping):
+        for npc in npcs.values():
+            if not isinstance(npc, Mapping):
+                continue
+            identifiers = {str(npc.get("id") or ""), str(npc.get("name") or "")}
+            if normalized in {_normalized(value) for value in identifiers if value}:
+                return None, "item_not_portable"
+
+    name = re.sub(r"^(?:一|1)(?:块|枚|根|片|颗|个|只|本|支|把|件)", "", name).strip()
+    return (name or target.strip()), None
+
+
+def _add_inventory_item(
+    inventory: list[Any],
+    *,
+    item_name: str,
+    food_kind: str | None = None,
+) -> tuple[list[Any] | None, str | None]:
+    """Add one item to the bounded JSON inventory without inventing properties."""
+
+    updated = copy.deepcopy(inventory)
+    wanted = _normalized(item_name)
+    for index, entry in enumerate(updated):
+        if isinstance(entry, str):
+            entry_name = entry
+            quantity = 1
+        elif isinstance(entry, Mapping):
+            entry_name = str(entry.get("name") or entry.get("id") or "")
+            quantity = entry.get("quantity", 1)
+        else:
+            continue
+        if _normalized(entry_name) != wanted:
+            continue
+        if (entry.get("category") if isinstance(entry, Mapping) else None) != (
+            "food" if food_kind else None
+        ):
+            continue
+        if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
+            return None, "inventory_invalid"
+        if quantity >= INVENTORY_STACK_LIMIT:
+            return None, "inventory_stack_limit_reached"
+        if isinstance(entry, str):
+            updated[index] = {
+                "id": f"carried_{uuid.uuid5(uuid.NAMESPACE_URL, wanted).hex[:12]}",
+                "name": item_name,
+                "quantity": 2,
+            }
+        else:
+            updated[index] = {**dict(entry), "quantity": quantity + 1}
+        return updated, None
+    if len(updated) >= INVENTORY_SLOT_LIMIT:
+        return None, "inventory_full"
+    new_item = {
+        "id": f"carried_{uuid.uuid5(uuid.NAMESPACE_URL, wanted).hex[:12]}",
+        "name": item_name,
+        "quantity": 1,
+    }
+    if food_kind is not None:
+        new_item.update({
+            "item_id": new_item["id"],
+            "category": "food",
+            "food_kind": food_kind,
+        })
+    updated.append(new_item)
+    return updated, None
+
+
 def resolve_action(
     structured_action: Mapping[str, Any],
     player_state: Mapping[str, Any],
@@ -219,16 +329,20 @@ def resolve_action(
     *,
     has_rideable_dragon: bool,
     npcs: Mapping[str, Any] | None = None,
+    food_candidate: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Resolve one Structured Action without writing any state."""
 
     validate_action_interpretation(structured_action)
     current_location = player_state.get("current_location")
     goals = player_state.get("goals")
+    inventory = player_state.get("inventory")
     if not isinstance(current_location, str) or current_location not in locations:
         raise ActionResolutionError("Player current Location is not grounded.")
     if not isinstance(goals, list) or not all(isinstance(goal, str) for goal in goals):
         raise ActionResolutionError("Player goals are invalid.")
+    if not isinstance(inventory, list):
+        raise ActionResolutionError("Player inventory is invalid.")
 
     if structured_action["needs_clarification"]:
         return _result(
@@ -292,6 +406,56 @@ def resolve_action(
     if family == "explore":
         return _result("success", "narrative_only", "open_exploration_recorded")
 
+    food_kind_action = food_action_kind(structured_action) if family != "travel" else None
+    if food_kind_action is not None:
+        location = locations[current_location]
+        allowed = available_food(food_kind_action, current_location, location)
+        if not allowed:
+            return _result(
+                "blocked", "narrative_only",
+                "food_hunting_unavailable" if food_kind_action == "hunt" else "food_market_unavailable",
+            )
+        candidate = food_candidate or explicit_food_candidate(
+            structured_action,
+            location_id=current_location,
+            location=location,
+        )
+        chosen = candidate.get("food_kind") if isinstance(candidate, Mapping) else None
+        if chosen not in allowed or candidate.get("name") != FOODS[chosen][0]:
+            return _result("blocked", "narrative_only", "food_target_not_grounded")
+        updated_inventory, inventory_error = _add_inventory_item(
+            inventory,
+            item_name=FOODS[chosen][0],
+            food_kind=chosen,
+        )
+        if inventory_error is not None:
+            return _result("blocked", "narrative_only", inventory_error)
+        assert updated_inventory is not None
+        return _result(
+            "success", "player_state",
+            "food_hunted" if food_kind_action == "hunt" else "food_bought",
+            state_changes={"inventory": updated_inventory},
+        )
+
+    if family == "use_acquire":
+        item_name, rejection = _portable_item_name(structured_action, npcs)
+        if rejection is not None:
+            return _result("blocked", "narrative_only", rejection)
+        if item_name is not None:
+            updated_inventory, inventory_error = _add_inventory_item(
+                inventory,
+                item_name=item_name,
+            )
+            if inventory_error is not None:
+                return _result("blocked", "narrative_only", inventory_error)
+            assert updated_inventory is not None
+            return _result(
+                "success",
+                "player_state",
+                "item_acquired",
+                state_changes={"inventory": updated_inventory},
+            )
+
     known_npc_target = (
         _resolve_npc_target(structured_action.get("target"), npcs)
         if isinstance(npcs, Mapping)
@@ -352,6 +516,7 @@ def commit_action_resolution(
     persistence: PostgresPersistenceAdapter,
     world_skeleton: Mapping[str, Any] | None = None,
     event_id: str | None = None,
+    food_candidate: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Re-resolve then atomically commit the allowlisted effect and event."""
 
@@ -380,6 +545,7 @@ def commit_action_resolution(
         locations,
         has_rideable_dragon=persistence.has_rideable_dragon(player_id),
         npcs=npcs,
+        food_candidate=food_candidate,
     )
     event = {
         "event_id": event_id or f"interaction_event_{uuid.uuid4().hex}",
@@ -396,12 +562,14 @@ def commit_action_resolution(
             "structured_action": copy.deepcopy(dict(structured_action)),
             "resolution": copy.deepcopy(resolution),
             "world_effect": copy.deepcopy(resolution["state_changes"]),
+            **({"food_candidate": dict(food_candidate)} if food_candidate else {}),
         },
     }
     committed = persistence.commit_free_action(
         player_id=player_id,
         expected_current_location=player_state["current_location"],
         expected_goals=player_state["goals"],
+        expected_inventory=player_state["inventory"],
         state_changes=resolution["state_changes"],
         event=event,
     )

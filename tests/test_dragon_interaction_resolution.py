@@ -7,6 +7,7 @@ import unittest
 from typing import Any
 
 from core.dragon_interaction_resolution import resolve_dragon_interaction
+from core.food_ecology import FOODS, favorite_food_kind
 
 
 DRAGON_ID = "dragon_kael_test"
@@ -128,6 +129,42 @@ class DragonInteractionResolutionTests(unittest.TestCase):
         self.assertEqual(result["state_changes"]["familiarity_delta"], 1)
         self.assertEqual(result["state_changes"]["trust_delta"], 1)
         self.assertIsNone(result["significant_event"])
+
+    def test_favorite_meat_accelerates_bond_but_repeat_is_dampened(self) -> None:
+        favorite = favorite_food_kind(dragon())
+        offered = {
+            "item_id": "favorite_meat",
+            "category": "food",
+            "food_kind": favorite,
+            "name": FOODS[favorite][0],
+            "quantity": 2,
+        }
+        food_action = action("interact", f"把{offered['name']}喂给 Kael")
+        first = self.resolve(food_action, inventory=[offered])
+        self.assertEqual(first["reason_code"], "preferred_food_accepted")
+        self.assertEqual(first["state_changes"]["trust_delta"], 2)
+        self.assertEqual(first["state_changes"]["bond_delta"], 1)
+        second = self.resolve(
+            food_action,
+            inventory=[offered],
+            recent_history=[{"interaction_type": "offer_food"}],
+        )
+        self.assertEqual(second["anti_farming"], "familiarity_only")
+        self.assertEqual(second["state_changes"]["bond_delta"], 0)
+
+    def test_named_food_must_match_real_inventory_item(self) -> None:
+        result = self.resolve(
+            action("interact", "把羊肉喂给 Kael"),
+            inventory=[{
+                "item_id": "fish",
+                "category": "food",
+                "food_kind": "fish",
+                "name": "鲜鱼",
+                "quantity": 1,
+            }],
+        )
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason_code"], "offered_food_not_grounded")
 
     def test_case_4_reckless_hug_is_blocked_and_defensive(self) -> None:
         result = self.resolve(action("interact", "突然冲过去抱住 Kael"))
@@ -416,6 +453,44 @@ class DragonInteractionResolutionTests(unittest.TestCase):
             ],
         )
         self.assertEqual(result["anti_farming"], "full")
+
+    def test_tamed_dragon_accepts_a_non_threatening_approach(self) -> None:
+        result = self.resolve(
+            action(
+                "interact",
+                "我小心靠近凯尔，展示自己没有任何威胁",
+                target="凯尔",
+                method="缓慢靠近并放低姿态",
+            ),
+            dragon_value=dragon(
+                behavior_state="threatening",
+                taming_state="tamed",
+            ),
+            bond_value=bond(5, 5, 0, 2),
+        )
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["dragon_reaction"], "accepting")
+        self.assertEqual(result["relationship_effect"], "positive")
+        self.assertEqual(
+            result["reason_code"],
+            "tamed_dragon_welcomes_approach",
+        )
+        self.assertGreaterEqual(result["state_changes"]["trust_delta"], 0)
+        self.assertEqual(result["state_changes"]["fear_delta"], 0)
+
+    def test_negated_threat_language_is_a_careful_approach(self) -> None:
+        result = self.resolve(
+            action(
+                "interact",
+                "我缓慢而小心地靠近凯尔，保持距离，不做任何威胁动作",
+                target="凯尔",
+            ),
+        )
+        self.assertEqual(result["interaction_type"], "approach")
+        self.assertEqual(result["relationship_effect"], "positive")
+        self.assertEqual(result["reason_code"], "cautious_approach")
+        self.assertEqual(result["state_changes"]["familiarity_delta"], 1)
+        self.assertEqual(result["state_changes"]["fear_delta"], 0)
 
 
 if __name__ == "__main__":

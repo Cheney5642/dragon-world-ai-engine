@@ -75,6 +75,12 @@ def result(trigger: str | None) -> dict[str, object]:
             "status": "success",
             "reason_code": "riding_arrived",
         }
+    elif trigger == "observe_dragon":
+        base["dragon_interaction"] = {
+            "status": "applied",
+            "interaction_type": "observe",
+            "dragon_id": "dragon_kael",
+        }
     return base
 
 
@@ -100,6 +106,38 @@ class SceneRendererTests(unittest.TestCase):
         for case, trigger in expected.items():
             with self.subTest(case=case):
                 self.assertEqual(visual_trigger(result(case)), trigger)
+
+    def test_observing_a_grounded_dragon_generates_and_reuses_its_portrait(self) -> None:
+        provider = StubImageProvider()
+        image_cache: dict[str, str] = {}
+        first = render_scene_visual(
+            action_result=result("observe_dragon"),
+            world=world(),
+            provider=provider,
+            image_cache=image_cache,
+        )
+        second = render_scene_visual(
+            action_result={
+                **result("observe_dragon"),
+                "story_update": {"event": {"event_id": "later_observation"}},
+            },
+            world=world(),
+            provider=provider,
+            image_cache=image_cache,
+        )
+        assert first is not None and second is not None
+        self.assertEqual(visual_trigger(result("observe_dragon")), "dragon_observation")
+        self.assertEqual(first["status"], "generated")
+        self.assertEqual(second["status"], "generated")
+        self.assertEqual(second["image_url"], first["image_url"])
+        self.assertTrue(second["reused"])
+        self.assertEqual(len(provider.prompts), 1)
+        self.assertIn("dragon_kael", provider.prompts[0])
+
+    def test_ordinary_area_observation_does_not_generate_dragon_portrait(self) -> None:
+        ordinary = result(None)
+        ordinary["structured_action"] = {"action_family": "observe_search"}
+        self.assertIsNone(visual_trigger(ordinary))
 
     def test_visual_context_uses_formal_world_truth(self) -> None:
         context = build_visual_context(

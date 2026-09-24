@@ -11,6 +11,7 @@ import re
 import uuid
 from typing import Any
 
+from core.display_names import npc_aliases
 
 FOCUS = {
     "discovery": ("field_observation", "寻踪者的观察", "你把眼前的环境作为下一次探索的起点"),
@@ -82,7 +83,14 @@ def advance_story(
             # Bind a named NPC, or the sole nearby NPC; never silently pick one.
             npcs = world.get("nearby_npcs", [])
             text = source["player_utterance"].casefold()
-            matches = [npc for npc in npcs if npc["name"].casefold() in text or npc["id"].casefold() in text]
+            matches = [
+                npc
+                for npc in npcs
+                if any(
+                    alias.casefold() in text
+                    for alias in npc_aliases(npc["id"], npc["name"])
+                )
+            ]
             npc = matches[0] if len(matches) == 1 else (npcs[0] if len(npcs) == 1 else None)
             if npc is None:
                 state["last_update"] = {"status": "needs_clarification", "event": None,
@@ -140,7 +148,7 @@ def advance_story(
             if trusted:
                 continuity += f"你与 {trusted[0]['npc_name']} 已有正向信任，但这不保证任何请求成功。"
             npcs = world.get("nearby_npcs", [])
-            recipient = npcs[0]["name"] if npcs else "Astrid"
+            recipient = npcs[0]["name"] if npcs else "阿斯特丽德"
             event = {
                 "event_type": event_type, "title": title,
                 "narrative": f"{location['name']}：{location.get('description', '')}。{line}。{continuity}",

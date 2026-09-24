@@ -59,6 +59,7 @@ class DragonRidingTests(unittest.TestCase):
         self.persistence = PostgresPersistenceAdapter(self.factory)
         self.token = uuid.uuid4().hex
         self.player_id = f"test_d6_player_{self.token}"
+        self.other_player_id = f"test_d6_other_{self.token}"
         self.dragon_id = f"test_d6_dragon_{self.token}"
         self.dragon_name = f"Testwing-{self.token[:8]}"
         with self.factory.begin() as session:
@@ -75,6 +76,25 @@ class DragonRidingTests(unittest.TestCase):
             session.add(
                 PlayerState(
                     player_id=self.player_id,
+                    current_location="skeld_village",
+                    inventory=[],
+                    goals=[],
+                    identity_context={},
+                )
+            )
+            session.add(
+                Player(
+                    player_id=self.other_player_id,
+                    name="D6 New Life",
+                    species="human",
+                    occupation=None,
+                    background=None,
+                    traits=[],
+                )
+            )
+            session.add(
+                PlayerState(
+                    player_id=self.other_player_id,
                     current_location="skeld_village",
                     inventory=[],
                     goals=[],
@@ -111,6 +131,21 @@ class DragonRidingTests(unittest.TestCase):
                     last_significant_event_id=None,
                 )
             )
+            session.flush()
+            session.add(
+                DragonEvent(
+                    event_id=f"test_d6_tamed_{self.token}",
+                    event_type="dragon_tamed",
+                    dragon_id=self.dragon_id,
+                    player_id=self.player_id,
+                    source_interaction_event_id=None,
+                    world_day=1,
+                    world_hour=8,
+                    location_id="skeld_village",
+                    milestone_key="tamed",
+                    event_payload={},
+                )
+            )
 
     def tearDown(self) -> None:
         with self.factory.begin() as session:
@@ -139,7 +174,11 @@ class DragonRidingTests(unittest.TestCase):
             session.execute(
                 delete(PlayerState).where(PlayerState.player_id == self.player_id)
             )
+            session.execute(
+                delete(PlayerState).where(PlayerState.player_id == self.other_player_id)
+            )
             session.execute(delete(Player).where(Player.player_id == self.player_id))
+            session.execute(delete(Player).where(Player.player_id == self.other_player_id))
         self.engine.dispose()
 
     def _source(self, structured: dict[str, object]) -> str:
@@ -293,12 +332,52 @@ class DragonRidingTests(unittest.TestCase):
 
     def test_non_tamed_dragon_is_blocked(self) -> None:
         with self.factory.begin() as session:
+            session.execute(
+                delete(DragonEvent).where(
+                    DragonEvent.player_id == self.player_id,
+                    DragonEvent.dragon_id == self.dragon_id,
+                    DragonEvent.event_type == "dragon_tamed",
+                )
+            )
             dragon = session.get(Dragon, self.dragon_id)
             assert dragon is not None
             dragon.taming_state = "bonding"
         result = self._mount()
         self.assertEqual(result["reason_code"], "riding_dragon_not_tamed")
         self.assertFalse(result["riding_unlocked"])
+
+    def test_taming_is_scoped_to_the_player_and_tamed_mount_unlocks(self) -> None:
+        self.assertEqual(
+            self.persistence.get_player_dragon_taming_state(
+                player_id=self.player_id,
+                dragon_id=self.dragon_id,
+            ),
+            "tamed",
+        )
+        self.assertEqual(
+            self.persistence.get_player_dragon_taming_state(
+                player_id=self.other_player_id,
+                dragon_id=self.dragon_id,
+            ),
+            "wild",
+        )
+        world = build_world_summary(
+            _load_postgres_world(
+                self.persistence,
+                player_id_override=self.other_player_id,
+            )
+        )
+        visible = next(
+            dragon
+            for dragon in world["nearby_dragons"]
+            if dragon["dragon_id"] == self.dragon_id
+        )
+        self.assertEqual(visible["taming_state"], "wild")
+        self.assertIsNone(visible["player_relationship"])
+
+        mounted = self._mount()
+        self.assertEqual(mounted["reason_code"], "riding_mounted")
+        self.assertTrue(mounted["riding_unlocked"])
 
     def test_named_dragon_travel_routes_before_d2_walking(self) -> None:
         structured = action(
@@ -388,6 +467,47 @@ class DragonRidingTests(unittest.TestCase):
         self.assertIsNone(dismounted["scene_visual"])
         self.assertEqual(len(image_provider.prompts), 2)
 
+    def test_deferred_mount_always_schedules_dragon_mount_visual(self) -> None:
+        image_provider = StubImageProvider()
+        structured = action(
+            "interact",
+            f"我骑上 {self.dragon_name}",
+            target=self.dragon_name,
+        )
+        application = create_app(
+            action_provider_client=StubProvider(structured),
+            persistence_adapter=self.persistence,
+            image_provider=image_provider,
+        )
+        status, payload = asyncio.run(
+            asgi_request(
+                application,
+                "/api/action/execute",
+                method="POST",
+                body={
+                    "player_id": self.player_id,
+                    "player_input": str(structured["action"]),
+                    "defer_visual": True,
+                },
+            )
+        )
+        self.assertEqual(status, 200, payload)
+        self.assertEqual(payload["dragon_riding"]["reason_code"], "riding_mounted")
+        self.assertEqual(payload["scene_visual"]["status"], "pending")
+        self.assertEqual(payload["scene_visual"]["trigger"], "dragon_mount")
+
+        visual_status, visual = asyncio.run(
+            asgi_request(
+                application,
+                f"/api/visual/{payload['source_event_id']}",
+            )
+        )
+        self.assertEqual(visual_status, 200, visual)
+        self.assertEqual(visual["status"], "generated")
+        self.assertEqual(visual["trigger"], "dragon_mount")
+        self.assertEqual(visual["camera"], "first_person_dragon_back")
+        self.assertTrue(visual["image_url"])
+
     def test_observe_in_dynamic_location_after_dismount_survives_new_app(self) -> None:
         dynamic_locations = self.persistence.get_dynamic_location_registry()[
             "locations"
@@ -457,13 +577,14 @@ class DragonRidingTests(unittest.TestCase):
             )
         self.assertEqual(after_count, before_count + 2)
 
-    def test_insufficient_bond_is_blocked(self) -> None:
+    def test_personally_tamed_dragon_does_not_require_a_second_bond_gate(self) -> None:
         with self.factory.begin() as session:
             bond = session.get(PlayerDragonBond, (self.player_id, self.dragon_id))
             assert bond is not None
             bond.bond = 2
         result = self._mount()
-        self.assertEqual(result["reason_code"], "riding_bond_threshold_not_met")
+        self.assertEqual(result["reason_code"], "riding_mounted")
+        self.assertTrue(result["riding_unlocked"])
 
     def test_mount_unlocks_persists_and_is_idempotent(self) -> None:
         structured = action(

@@ -4,7 +4,7 @@ You propose one imaginative but ungrounded location candidate for a low-magic no
 
 Return only the exact JSON object required by the supplied schema.
 
-The runtime supplies the player's grounded current location and exploration intent. Keep the candidate geographically and tonally compatible with that context. All player-facing narrative values must use Simplified Chinese. A short fantasy proper name may remain in another language when appropriate.
+The runtime supplies the player's grounded current location and exploration intent. Keep the candidate geographically and tonally compatible with that context. All player-facing narrative values must use Simplified Chinese. The location `name` must be a concise Chinese fantasy place name and must not contain Latin letters.
 
 You may propose only:
 

@@ -1,7 +1,7 @@
 {
   "world": {
-    "name": "Dragon Isles",
-    "region": "Skeld Region",
+    "name": "龙之群岛",
+    "region": "斯凯尔德地区",
     "day": 1,
     "hour": 8,
     "weather": "cloudy",
@@ -37,9 +37,9 @@
   },
   "locations": {
     "skeld_village": {
-      "name": "Skeld",
+      "name": "斯凯尔德",
       "type": "village",
-      "description": "位于 Dragon Isles 边缘的寒冷渔村",
+      "description": "位于龙之群岛边缘的寒冷渔村",
       "connections": [
         "stormcliff",
         "old_ruins",
@@ -47,7 +47,7 @@
       ]
     },
     "stormcliff": {
-      "name": "Stormcliff",
+      "name": "风暴崖",
       "type": "wild_area",
       "description": "常年受到强风和暴风雨影响的海崖",
       "connections": [
@@ -55,7 +55,7 @@
       ]
     },
     "old_ruins": {
-      "name": "Old Ruins",
+      "name": "古老遗迹",
       "type": "ruins",
       "description": "建造者未知的古代遗迹",
       "connections": [
@@ -63,7 +63,7 @@
       ]
     },
     "whispering_woods": {
-      "name": "Whispering Woods",
+      "name": "低语森林",
       "type": "forest",
       "description": "生活着野生动物和多种龙类的森林",
       "connections": [
@@ -74,7 +74,7 @@
   "npcs": {
     "astrid": {
       "id": "npc_astrid",
-      "name": "Astrid",
+      "name": "阿斯特丽德",
       "species": "human",
       "occupation": "fisherman's daughter",
       "personality": [
@@ -94,7 +94,7 @@
     },
     "bjorn": {
       "id": "npc_bjorn",
-      "name": "Bjorn",
+      "name": "比约恩",
       "species": "human",
       "occupation": "blacksmith",
       "personality": [
@@ -114,7 +114,7 @@
     },
     "haldor": {
       "id": "npc_haldor",
-      "name": "Haldor",
+      "name": "哈尔多",
       "species": "human",
       "occupation": "dragon tamer",
       "personality": [
@@ -128,7 +128,7 @@
       "knowledge": [
         "dragon behavior",
         "dragon habitats",
-        "Stormcliff"
+        "风暴崖"
       ],
       "relationships": {},
       "memories": []
