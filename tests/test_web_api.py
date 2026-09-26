@@ -553,13 +553,14 @@ class FreeActionExecuteApiTests(unittest.TestCase):
 
     def test_grounded_note_feedback_uses_real_dragon_traits(self) -> None:
         persistence = SimpleNamespace(
-            list_dragons_at_location=lambda _location: [{
+            list_dragons_at_location=lambda _location, **_kwargs: [{
                 "name": "Kael",
                 "age_stage": "juvenile",
                 "temperament_traits": ["胆小", "好奇"],
             }]
         )
         message = _grounded_action_feedback(
+            player_id="player_test",
             player_input="我掏出笔记本记录了 Kael 的性格",
             structured_action={
                 "action_family": "other",
@@ -610,8 +611,9 @@ class FreeActionExecuteApiTests(unittest.TestCase):
         )
 
     def test_ordinary_action_feedback_is_contextual_without_meta_copy(self) -> None:
-        persistence = SimpleNamespace(list_dragons_at_location=lambda _location: [])
+        persistence = SimpleNamespace(list_dragons_at_location=lambda _location, **_kwargs: [])
         message = _grounded_action_feedback(
+            player_id="player_test",
             player_input="我点起一盏小灯。",
             structured_action={
                 "action_family": "other",

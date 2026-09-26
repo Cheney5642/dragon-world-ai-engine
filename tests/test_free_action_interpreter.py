@@ -65,6 +65,7 @@ class FreeActionInterpreterTests(unittest.TestCase):
         self.assertEqual(json.loads(request["user_message"]), {"player_input": player_input})
         self.assertEqual(request["schema_name"], "free_action_interpretation")
         self.assertEqual(request["schema"], load_action_schema())
+        self.assertEqual(request["thinking"], "disabled")
         self.assertIn("D2 Action Interpreter", request["system_prompt"])
         self.assertNotIn("candidate_identity_facets", request["system_prompt"])
 

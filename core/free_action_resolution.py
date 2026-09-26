@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 import uuid
+from time import perf_counter
 from collections import deque
 from pathlib import Path
 from typing import Any, Mapping
@@ -23,6 +25,7 @@ from database.persistence import PostgresPersistenceAdapter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORLD_SEED_PATH = PROJECT_ROOT / "data" / "world_seed.json"
+logger = logging.getLogger(__name__)
 OUTCOMES = {"success", "partial", "blocked", "needs_clarification"}
 EFFECT_SCOPES = {"narrative_only", "player_state", "domain_route"}
 INVENTORY_SLOT_LIMIT = 12
@@ -517,36 +520,45 @@ def commit_action_resolution(
     world_skeleton: Mapping[str, Any] | None = None,
     event_id: str | None = None,
     food_candidate: Mapping[str, str] | None = None,
+    latency_trace_id: str | None = None,
 ) -> dict[str, Any]:
     """Re-resolve then atomically commit the allowlisted effect and event."""
 
     if not isinstance(player_input, str) or not player_input.strip():
         raise ActionResolutionError("player_input must be non-empty.")
-    player_state = persistence.get_player_state(player_id)
-    if player_state is None:
-        raise ActionResolutionError(f"PlayerState does not exist: {player_id}")
-    skeleton = dict(
-        world_skeleton
-        if world_skeleton is not None
-        else load_runtime_world_skeleton(persistence)
-    )
-    locations = skeleton.get("locations")
-    npcs = skeleton.get("npcs", {})
-    clock = skeleton.get("world")
-    if (
-        not isinstance(locations, Mapping)
-        or not isinstance(npcs, Mapping)
-        or not isinstance(clock, Mapping)
-    ):
-        raise ActionResolutionError("World skeleton is invalid.")
-    resolution = resolve_action(
-        structured_action,
-        player_state,
-        locations,
-        has_rideable_dragon=persistence.has_rideable_dragon(player_id),
-        npcs=npcs,
-        food_candidate=food_candidate,
-    )
+    resolution_started = perf_counter()
+    try:
+        player_state = persistence.get_player_state(player_id)
+        if player_state is None:
+            raise ActionResolutionError(f"PlayerState does not exist: {player_id}")
+        skeleton = dict(
+            world_skeleton
+            if world_skeleton is not None
+            else load_runtime_world_skeleton(persistence)
+        )
+        locations = skeleton.get("locations")
+        npcs = skeleton.get("npcs", {})
+        clock = skeleton.get("world")
+        if (
+            not isinstance(locations, Mapping)
+            or not isinstance(npcs, Mapping)
+            or not isinstance(clock, Mapping)
+        ):
+            raise ActionResolutionError("World skeleton is invalid.")
+        resolution = resolve_action(
+            structured_action,
+            player_state,
+            locations,
+            has_rideable_dragon=persistence.has_rideable_dragon(player_id),
+            npcs=npcs,
+            food_candidate=food_candidate,
+        )
+    finally:
+        if latency_trace_id is not None:
+            logger.warning(
+                "[LATENCY] trace=%s phase=resolution duration_ms=%.1f",
+                latency_trace_id, (perf_counter() - resolution_started) * 1000,
+            )
     event = {
         "event_id": event_id or f"interaction_event_{uuid.uuid4().hex}",
         "event_type": "free_world_action",
@@ -565,14 +577,22 @@ def commit_action_resolution(
             **({"food_candidate": dict(food_candidate)} if food_candidate else {}),
         },
     }
-    committed = persistence.commit_free_action(
-        player_id=player_id,
-        expected_current_location=player_state["current_location"],
-        expected_goals=player_state["goals"],
-        expected_inventory=player_state["inventory"],
-        state_changes=resolution["state_changes"],
-        event=event,
-    )
+    commit_started = perf_counter()
+    try:
+        committed = persistence.commit_free_action(
+            player_id=player_id,
+            expected_current_location=player_state["current_location"],
+            expected_goals=player_state["goals"],
+            expected_inventory=player_state["inventory"],
+            state_changes=resolution["state_changes"],
+            event=event,
+        )
+    finally:
+        if latency_trace_id is not None:
+            logger.warning(
+                "[LATENCY] trace=%s phase=db duration_ms=%.1f",
+                latency_trace_id, (perf_counter() - commit_started) * 1000,
+            )
     return {
         "resolution": resolution,
         "player_state": committed["player_state"],

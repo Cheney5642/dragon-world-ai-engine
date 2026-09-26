@@ -134,6 +134,20 @@ class DragonRidingTests(unittest.TestCase):
             session.flush()
             session.add(
                 DragonEvent(
+                    event_id=f"test_d6_first_{self.token}",
+                    event_type="dragon_first_encounter",
+                    dragon_id=self.dragon_id,
+                    player_id=self.player_id,
+                    source_interaction_event_id=None,
+                    world_day=1,
+                    world_hour=8,
+                    location_id="skeld_village",
+                    milestone_key="first_encounter",
+                    event_payload={},
+                )
+            )
+            session.add(
+                DragonEvent(
                     event_id=f"test_d6_tamed_{self.token}",
                     event_type="dragon_tamed",
                     dragon_id=self.dragon_id,
@@ -151,21 +165,29 @@ class DragonRidingTests(unittest.TestCase):
         with self.factory.begin() as session:
             session.execute(
                 delete(WorldStateEntry).where(
-                    WorldStateEntry.state_id
-                    == f"player.{self.player_id}.riding.v1"
+                    WorldStateEntry.state_id.in_([
+                        f"player.{self.player_id}.riding.v1",
+                        f"player.{self.other_player_id}.riding.v1",
+                    ])
                 )
             )
             session.execute(
                 delete(PlayerDragonBond).where(
-                    PlayerDragonBond.player_id == self.player_id
+                    PlayerDragonBond.player_id.in_(
+                        [self.player_id, self.other_player_id]
+                    )
                 )
             )
             session.execute(
-                delete(DragonEvent).where(DragonEvent.player_id == self.player_id)
+                delete(DragonEvent).where(DragonEvent.player_id.in_(
+                    [self.player_id, self.other_player_id]
+                ))
             )
             session.execute(
                 delete(InteractionEvent).where(
-                    InteractionEvent.player_id == self.player_id
+                    InteractionEvent.player_id.in_(
+                        [self.player_id, self.other_player_id]
+                    )
                 )
             )
             session.execute(
@@ -181,16 +203,19 @@ class DragonRidingTests(unittest.TestCase):
             session.execute(delete(Player).where(Player.player_id == self.other_player_id))
         self.engine.dispose()
 
-    def _source(self, structured: dict[str, object]) -> str:
+    def _source(
+        self, structured: dict[str, object], *, player_id: str | None = None
+    ) -> str:
         event_id = f"test_d6_event_{uuid.uuid4().hex}"
+        source_player_id = player_id or self.player_id
         with self.factory.begin() as session:
-            state = session.get(PlayerState, self.player_id)
+            state = session.get(PlayerState, source_player_id)
             assert state is not None
             session.add(
                 InteractionEvent(
                     event_id=event_id,
                     event_type="free_world_action",
-                    player_id=self.player_id,
+                    player_id=source_player_id,
                     npc_id=None,
                     world_day=1,
                     world_hour=8,
@@ -367,17 +392,102 @@ class DragonRidingTests(unittest.TestCase):
                 player_id_override=self.other_player_id,
             )
         )
-        visible = next(
-            dragon
+        self.assertFalse(any(
+            dragon["dragon_id"] == self.dragon_id
             for dragon in world["nearby_dragons"]
-            if dragon["dragon_id"] == self.dragon_id
+        ))
+        self.assertEqual(
+            self.persistence.list_dragons_at_location(
+                "skeld_village", player_id=self.other_player_id
+            ),
+            [],
         )
-        self.assertEqual(visible["taming_state"], "wild")
-        self.assertIsNone(visible["player_relationship"])
+        self.assertIsNone(self.persistence.get_dragon(
+            self.dragon_id, player_id=self.other_player_id,
+        ))
+        self.assertIsNotNone(self.persistence.get_dragon(
+            self.dragon_id, player_id=self.player_id,
+        ))
 
         mounted = self._mount()
         self.assertEqual(mounted["reason_code"], "riding_mounted")
         self.assertTrue(mounted["riding_unlocked"])
+
+    def test_other_player_cannot_mount_discovered_dragon_by_id(self) -> None:
+        source_id = self._source(
+            action("interact", f"我骑上 {self.dragon_name}", target=self.dragon_name),
+            player_id=self.other_player_id,
+        )
+        with self.assertRaisesRegex(PersistenceMappingError, "another Player"):
+            self.persistence.commit_dragon_riding(
+                player_id=self.other_player_id,
+                dragon_id=self.dragon_id,
+                source_interaction_event_id=source_id,
+                operation="mount",
+                destination_id=None,
+                known_location_ids={"skeld_village"},
+                rideable_archetype_ids={"balanced_wild"},
+            )
+        self.assertIsNone(self.persistence.get_player_riding_state(
+            self.other_player_id
+        )["mounted_dragon_id"])
+
+    def test_legacy_cross_player_taming_does_not_grant_dragon_access(self) -> None:
+        with self.factory.begin() as session:
+            session.add(WorldStateEntry(
+                state_id=f"player.{self.other_player_id}.riding.v1",
+                state_value={
+                    "version": 1,
+                    "player_id": self.other_player_id,
+                    "mounted_dragon_id": self.dragon_id,
+                },
+                source_event_type=None,
+                source_event_id=None,
+            ))
+            session.add(PlayerDragonBond(
+                player_id=self.other_player_id,
+                dragon_id=self.dragon_id,
+                familiarity=5,
+                trust=5,
+                fear=0,
+                bond=3,
+                riding_unlocked=True,
+                last_significant_event_id=None,
+            ))
+            session.add(DragonEvent(
+                event_id=f"test_d6_other_tamed_{self.token}",
+                event_type="dragon_tamed",
+                dragon_id=self.dragon_id,
+                player_id=self.other_player_id,
+                source_interaction_event_id=None,
+                world_day=1,
+                world_hour=8,
+                location_id="skeld_village",
+                milestone_key="tamed",
+                event_payload={},
+            ))
+        self.assertFalse(self.persistence.has_rideable_dragon(
+            self.other_player_id
+        ))
+        self.assertEqual(self.persistence.list_dragons_at_location(
+            "skeld_village", player_id=self.other_player_id,
+        ), [])
+        self.assertIsNone(self.persistence.get_dragon(
+            self.dragon_id, player_id=self.other_player_id,
+        ))
+        self.assertIsNone(self.persistence.get_player_riding_state(
+            self.other_player_id
+        )["mounted_dragon_id"])
+        world = build_world_summary(_load_postgres_world(
+            self.persistence, player_id_override=self.other_player_id,
+        ))
+        self.assertIsNone(world["riding"]["mounted_dragon_id"])
+        with self.factory() as session:
+            saved = session.get(
+                WorldStateEntry, f"player.{self.other_player_id}.riding.v1"
+            )
+            assert saved is not None
+            self.assertEqual(saved.state_value["mounted_dragon_id"], self.dragon_id)
 
     def test_named_dragon_travel_routes_before_d2_walking(self) -> None:
         structured = action(

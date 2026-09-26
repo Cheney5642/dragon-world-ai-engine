@@ -437,7 +437,9 @@ def decide_current_dragon_encounter(
     if not isinstance(locations, Mapping):
         raise EncounterDecisionError("World skeleton has no Location registry.")
 
-    existing_dragons = persistence.list_dragons_at_location(current_location)
+    existing_dragons = persistence.list_dragons_at_location(
+        current_location, player_id=player_id
+    )
     recent_history = persistence.list_recent_dragon_encounter_decisions(
         player_id,
         location_id=current_location,

@@ -105,8 +105,10 @@ class ReadOnlyPersistence:
         self.calls.append(("get_player_state", player_id))
         return copy.deepcopy(self.player_state)
 
-    def list_dragons_at_location(self, location_id: str) -> list[dict[str, Any]]:
-        self.calls.append(("list_dragons_at_location", location_id))
+    def list_dragons_at_location(
+        self, location_id: str, *, player_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        self.calls.append(("list_dragons_at_location", location_id, player_id))
         return copy.deepcopy(self.dragons)
 
     def list_recent_dragon_encounter_decisions(

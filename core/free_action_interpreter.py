@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -15,6 +17,7 @@ from llm import LLMProviderClient, create_llm_client
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "free_action_interpreter_system.md"
 SCHEMA_PATH = PROJECT_ROOT / "schemas" / "free_action_interpretation.schema.json"
+logger = logging.getLogger(__name__)
 
 
 class ActionInterpretationError(Exception):
@@ -57,6 +60,7 @@ def interpret_action(
     player_input: str,
     *,
     provider_client: LLMProviderClient | None = None,
+    latency_trace_id: str | None = None,
 ) -> dict[str, Any]:
     """Return unverified intent, using only text and shared LLM infrastructure.
 
@@ -75,12 +79,23 @@ def interpret_action(
         raise ActionInterpretationError("Action Prompt must not be empty.")
     schema = load_action_schema()
     client = provider_client if provider_client is not None else create_llm_client()
-    output = client.create_structured_output(
-        system_prompt=prompt,
-        user_message=json.dumps({"player_input": player_input}, ensure_ascii=False),
-        schema=schema,
-        schema_name="free_action_interpretation",
-    )
+    llm_started = perf_counter()
+    if latency_trace_id is not None:
+        logger.warning("[LATENCY] trace=%s phase=d2b_llm_start", latency_trace_id)
+    try:
+        output = client.create_structured_output(
+            system_prompt=prompt,
+            user_message=json.dumps({"player_input": player_input}, ensure_ascii=False),
+            schema=schema,
+            schema_name="free_action_interpretation",
+            thinking="disabled",
+        )
+    finally:
+        if latency_trace_id is not None:
+            logger.warning(
+                "[LATENCY] trace=%s phase=d2b_llm_end duration_ms=%.1f",
+                latency_trace_id, (perf_counter() - llm_started) * 1000,
+            )
     if not isinstance(output, str):
         raise ActionInterpretationError("Model output must be JSON text.")
     try:

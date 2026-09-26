@@ -179,20 +179,22 @@ class PostgresPersistenceAdapter:
         )
         with self._read_session() as session:
             return any(
-                _player_dragon_taming_state(
+                _dragon_owned_by_player(session, dragon_id, player_id)
+                and _player_dragon_taming_state(
                     session,
                     player_id=player_id,
                     dragon_id=dragon_id,
-                )
-                == "tamed"
+                ) == "tamed"
                 for dragon_id in session.scalars(statement).all()
             )
 
     def list_dragons_at_location(
         self,
         location_id: str,
+        *,
+        player_id: str,
     ) -> list[dict[str, Any]]:
-        """Read committed Dragons at one authored Location without mutation."""
+        """Read only Dragons first discovered by this Player at a Location."""
 
         statement = (
             select(Dragon)
@@ -203,13 +205,20 @@ class PostgresPersistenceAdapter:
             return [
                 _dragon_record(record)
                 for record in session.scalars(statement).all()
+                if _dragon_owned_by_player(session, record.dragon_id, player_id)
             ]
 
-    def get_dragon(self, dragon_id: str) -> dict[str, Any] | None:
-        """Read one committed Dragon without producing a mutation."""
+    def get_dragon(
+        self, dragon_id: str, *, player_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Read one committed Dragon, optionally scoped to its discoverer."""
 
         with self._read_session() as session:
             record = session.get(Dragon, dragon_id)
+            if record is not None and player_id is not None and not _dragon_owned_by_player(
+                session, dragon_id, player_id
+            ):
+                return None
             return _dragon_record(record) if record is not None else None
 
     def get_player_dragon_bond(
@@ -244,7 +253,7 @@ class PostgresPersistenceAdapter:
             )
 
     def get_player_riding_state(self, player_id: str) -> dict[str, Any]:
-        """Read the persisted D6 mounted state for one Player."""
+        """Read effective D6 state without exposing a legacy foreign mount."""
 
         state_id = _player_riding_state_id(player_id)
         with self._read_session() as session:
@@ -255,7 +264,13 @@ class PostgresPersistenceAdapter:
                     "player_id": player_id,
                     "mounted_dragon_id": None,
                 }
-            return _player_riding_state_value(record.state_value, player_id)
+            riding = _player_riding_state_value(record.state_value, player_id)
+            mounted_id = riding["mounted_dragon_id"]
+            if mounted_id is not None and not _dragon_owned_by_player(
+                session, mounted_id, player_id
+            ):
+                riding["mounted_dragon_id"] = None
+            return riding
 
     def commit_dragon_riding(
         self,
@@ -328,6 +343,10 @@ class PostgresPersistenceAdapter:
                 raise PersistenceMappingError(
                     "Dragon Riding Player or Dragon does not exist."
                 )
+            if not _dragon_owned_by_player(session, dragon_id, player_id):
+                raise PersistenceMappingError(
+                    "Dragon Riding target belongs to another Player."
+                )
 
             state_id = _player_riding_state_id(player_id)
             riding_record = session.scalar(
@@ -347,6 +366,13 @@ class PostgresPersistenceAdapter:
                     player_id,
                 )
             )
+            old_mounted_id = riding_state["mounted_dragon_id"]
+            if old_mounted_id is not None and not _dragon_owned_by_player(
+                session, old_mounted_id, player_id
+            ):
+                # A successful own-dragon action replaces an invalid legacy
+                # mount. A blocked action does not rewrite the saved state.
+                riding_state["mounted_dragon_id"] = None
 
             status = "success"
             dragon_event: DragonEvent | None = None
@@ -606,6 +632,10 @@ class PostgresPersistenceAdapter:
             )
             if dragon is None:
                 raise PersistenceMappingError(f"Dragon does not exist: {dragon_id}")
+            if not _dragon_owned_by_player(session, dragon_id, player_id):
+                raise PersistenceMappingError(
+                    "Dragon interaction target belongs to another Player."
+                )
             _validate_dragon_interaction_target(
                 structured_action,
                 d2_resolution,
@@ -1898,6 +1928,22 @@ class PostgresPersistenceAdapter:
             document.source_event_id = source_event_id
             document.updated_at = datetime.now(timezone.utc)
             return copy.deepcopy(state["last_update"])
+
+
+def _dragon_owned_by_player(
+    session: Session, dragon_id: str, player_id: str
+) -> bool:
+    """A discovered Dragon belongs to exactly one first-encounter Player."""
+
+    discoverers = session.scalars(
+        select(DragonEvent.player_id)
+        .where(
+            DragonEvent.dragon_id == dragon_id,
+            DragonEvent.event_type == "dragon_first_encounter",
+        )
+        .limit(2)
+    ).all()
+    return len(discoverers) == 1 and discoverers[0] == player_id
 
 
 def _validate_dragon_encounter_source(

@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 
 import {
   API_BASE_URL,
+  activePlayerId,
   commitNpcMemory,
   commitNpcRelationship,
   DragonWorldApiError,
@@ -153,14 +154,16 @@ function LoadingState() {
   );
 }
 
-function ErrorState({ onRetry }: { onRetry: () => void }) {
+function ErrorState({ onRetry, message }: { onRetry: () => void; message: string }) {
   return (
     <main className={styles.centeredState} role="alert">
       <div className={styles.errorMark} aria-hidden="true">
         !
       </div>
-      <p>{UI_COPY.errors.worldOffline}</p>
-      <span>{UI_COPY.errors.backendHint(API_BASE_URL)}</span>
+      <p>{message}</p>
+      <span>{message === UI_COPY.errors.worldOffline
+        ? UI_COPY.errors.backendHint(API_BASE_URL)
+        : UI_COPY.errors.worldLoadFailedHint}</span>
       <button className={styles.retryButton} type="button" onClick={onRetry}>
         {UI_COPY.errors.retry}
       </button>
@@ -551,6 +554,7 @@ export function WorldShell() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [worldLoadError, setWorldLoadError] = useState<string | null>(null);
   const [actionInput, setActionInput] = useState("");
   const [actionResult, setActionResult] =
     useState<ActionExecuteResponse | null>(null);
@@ -581,10 +585,12 @@ export function WorldShell() {
       .then((state) => {
         if (state) setWorldState(state);
         else setCreatingLife(true);
+        setWorldLoadError(null);
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
+        setWorldLoadError(actionErrorMessage(error, UI_COPY.errors.worldOffline));
         setFailed(true);
         setLoading(false);
       });
@@ -595,6 +601,7 @@ export function WorldShell() {
   function handleRetry() {
     setLoading(true);
     setFailed(false);
+    setWorldLoadError(null);
     setRetryKey((value) => value + 1);
   }
 
@@ -754,7 +761,17 @@ export function WorldShell() {
     );
   }
   if (failed || !worldState) {
-    return <><ErrorState onRetry={handleRetry} /><div className={styles.lifeToolbar}>
+    return <><ErrorState onRetry={handleRetry} message={worldLoadError ?? UI_COPY.errors.worldOffline} /><div className={styles.lifeToolbar}>
+      <label>切换人生
+        <select value={activePlayerId()} onChange={(event) => {
+          selectPlayer(event.target.value);
+          resetSessionDisplay();
+          handleRetry();
+        }}>
+          <option value="player_001">原有 Demo 世界</option>
+          {savedLives().map((life) => <option key={life.id} value={life.id}>{life.label}</option>)}
+        </select>
+      </label>
       <button type="button" onClick={() => { setFailed(false); setCreatingLife(true); }}>保留原存档，开启新人生</button>
     </div></>;
   }

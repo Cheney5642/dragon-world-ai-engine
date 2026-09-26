@@ -161,6 +161,7 @@ export const UI_COPY = {
     worldOffline: "Dragon World API 当前离线。",
     backendHint: (baseUrl: string) =>
       `开发模式下，请确认后端服务正在运行：${baseUrl}`,
+    worldLoadFailedHint: "后端仍在线，但这条人生暂时无法读取。你可以切换其他角色或重试。",
     retry: "重试连接",
     previewFallback: "无法生成行动预览。",
     commitFallback: "无法执行本次行动。",

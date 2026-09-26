@@ -12,7 +12,7 @@ import copy
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from openai import OpenAI, OpenAIError
 
@@ -122,6 +122,7 @@ class LLMProviderClient:
         user_message: str,
         schema: dict[str, Any],
         schema_name: str,
+        thinking: Literal["disabled"] | None = None,
     ) -> str:
         """Call the configured provider and return strict structured text."""
 
@@ -140,6 +141,7 @@ class LLMProviderClient:
                         "schema": _build_api_schema(schema),
                     }
                 },
+                **({"extra_body": {"thinking": {"type": thinking}}} if thinking else {}),
             )
         except OpenAIError as exc:
             diagnostics = _provider_error_diagnostics(exc)

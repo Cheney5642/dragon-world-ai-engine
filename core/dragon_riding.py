@@ -131,7 +131,7 @@ def _resolve_dragon(
     riding = persistence.get_player_riding_state(player_id)
     mounted_id = riding["mounted_dragon_id"]
     if operation in {"dismount", "mounted_travel"} and mounted_id is not None:
-        mounted = persistence.get_dragon(mounted_id)
+        mounted = persistence.get_dragon(mounted_id, player_id=player_id)
         target = structured_action.get("target")
         if isinstance(target, str) and target.strip() and mounted is not None:
             if target.strip().casefold() not in {
@@ -146,7 +146,9 @@ def _resolve_dragon(
     player_state = persistence.get_player_state(player_id)
     if player_state is None:
         raise DragonRidingError(f"PlayerState does not exist: {player_id}")
-    nearby = persistence.list_dragons_at_location(player_state["current_location"])
+    nearby = persistence.list_dragons_at_location(
+        player_state["current_location"], player_id=player_id
+    )
     target = structured_action.get("target")
     wanted = target.strip().casefold() if isinstance(target, str) else ""
     matches = [

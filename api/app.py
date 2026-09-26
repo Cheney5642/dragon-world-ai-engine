@@ -6,11 +6,12 @@ import copy
 import logging
 import threading
 import uuid
+from time import perf_counter
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from jsonschema import ValidationError
@@ -433,7 +434,7 @@ def _load_postgres_world(
                 "PostgreSQL Player location does not resolve to World configuration."
             )
         nearby_dragons = persistence.list_dragons_at_location(
-            runtime_player["current_location"]
+            runtime_player["current_location"], player_id=player_id
         )
         for dragon in nearby_dragons:
             dragon["player_relationship"] = persistence.get_player_dragon_bond(
@@ -451,7 +452,7 @@ def _load_postgres_world(
         mounted_id = riding["mounted_dragon_id"]
         mounted_name = None
         if mounted_id is not None:
-            mounted_dragon = persistence.get_dragon(mounted_id)
+            mounted_dragon = persistence.get_dragon(mounted_id, player_id=player_id)
             if (
                 mounted_dragon is None
                 or mounted_dragon["current_location"]
@@ -618,6 +619,7 @@ def _free_action_player_message(resolution: dict[str, Any]) -> str:
 
 def _grounded_action_feedback(
     *,
+    player_id: str,
     player_input: str,
     structured_action: Mapping[str, Any],
     resolution: Mapping[str, Any],
@@ -662,7 +664,9 @@ def _grounded_action_feedback(
     normalized_input = player_input.casefold()
     note_markers = ("记录", "笔记", "写下", "记下", "note", "write down")
     if any(marker in normalized_input for marker in note_markers):
-        nearby_dragons = persistence.list_dragons_at_location(player_location)
+        nearby_dragons = persistence.list_dragons_at_location(
+            player_location, player_id=player_id
+        )
         mentioned = [
             dragon
             for dragon in nearby_dragons
@@ -717,6 +721,7 @@ def _dragon_encounter_player_message(
     resolution: dict[str, Any],
     encounter: dict[str, Any],
     *,
+    player_id: str,
     player_input: str,
     structured_action: Mapping[str, Any],
     player_location: str,
@@ -734,6 +739,7 @@ def _dragon_encounter_player_message(
     if outcome == "direct_encounter" and isinstance(dragon_name, str):
         return f"你与龙 {dragon_name} 正面相遇。"
     return _grounded_action_feedback(
+        player_id=player_id,
         player_input=player_input,
         structured_action=structured_action,
         resolution=resolution,
@@ -822,6 +828,7 @@ def _structured_action_text(structured_action: Mapping[str, Any]) -> str:
 
 def _ground_dragon_interaction_target(
     *,
+    player_id: str,
     structured_action: Mapping[str, Any],
     resolution: Mapping[str, Any],
     player_location: str,
@@ -845,10 +852,13 @@ def _ground_dragon_interaction_target(
     target = structured_action.get("target")
     target_text = target.strip() if isinstance(target, str) else ""
     target_key = target_text.casefold()
-    nearby = persistence.list_dragons_at_location(player_location)
+    nearby = persistence.list_dragons_at_location(
+        player_location, player_id=player_id
+    )
 
     committed_by_id = (
-        persistence.get_dragon(target_text) if target_text else None
+        persistence.get_dragon(target_text, player_id=player_id)
+        if target_text else None
     )
     nearby_matches = [
         dragon
@@ -1295,6 +1305,27 @@ def create_app(
         allow_headers=["Content-Type"],
     )
 
+    @application.middleware("http")
+    async def log_action_latency(request: Request, call_next: Any) -> Any:
+        path = request.url.path
+        if path not in {"/api/action/execute", "/api/world"}:
+            return await call_next(request)
+        trace_id = uuid.uuid4().hex[:12]
+        request.state.latency_trace_id = trace_id
+        started = perf_counter()
+        if path == "/api/action/execute":
+            logger.warning("[LATENCY] trace=%s phase=api_receive", trace_id)
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            elapsed_ms = (perf_counter() - started) * 1000
+            phase = "total" if path == "/api/action/execute" else "world_readback"
+            logger.warning(
+                "[LATENCY] trace=%s phase=%s duration_ms=%.1f",
+                trace_id, phase, elapsed_ms,
+            )
+
     @application.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "service": "dragon-world-api"}
@@ -1546,6 +1577,7 @@ def create_app(
     def execute_free_action(
         request: FreeActionExecuteRequest,
         background_tasks: BackgroundTasks,
+        http_request: Request,
     ) -> dict[str, Any]:
         player_id = request.player_id.strip()
         player_input = request.player_input.strip()
@@ -1560,10 +1592,19 @@ def create_app(
             )
 
         try:
-            structured_action = interpret_free_action(
-                player_input,
-                provider_client=action_provider_client,
-            )
+            trace_id = http_request.state.latency_trace_id
+            d2_started = perf_counter()
+            try:
+                structured_action = interpret_free_action(
+                    player_input,
+                    provider_client=action_provider_client,
+                    latency_trace_id=trace_id,
+                )
+            finally:
+                logger.warning(
+                    "[LATENCY] trace=%s phase=d2b_total duration_ms=%.1f",
+                    trace_id, (perf_counter() - d2_started) * 1000,
+                )
             riding_operation = classify_riding_operation(structured_action)
             if riding_operation is not None:
                 structured_action = route_grounded_riding_before_d2(
@@ -1596,6 +1637,7 @@ def create_app(
                 persistence=persistence_adapter,
                 world_skeleton=runtime_skeleton,
                 food_candidate=food_candidate,
+                latency_trace_id=trace_id,
             )
             resolution = committed["resolution"]
             source_event_id = committed["interaction_event"]["event_id"]
@@ -1662,6 +1704,7 @@ def create_app(
                 location_discovery = _location_discovery_response(location_commit)
 
             dragon_target = _ground_dragon_interaction_target(
+                player_id=player_id,
                 structured_action=structured_action,
                 resolution=resolution,
                 player_location=encounter_location_id,
@@ -1747,7 +1790,7 @@ def create_app(
                 encounter_source = "generated"
             elif decision["dragon_id"] is not None:
                 persisted_dragon = persistence_adapter.get_dragon(
-                    decision["dragon_id"]
+                    decision["dragon_id"], player_id=player_id
                 )
                 if persisted_dragon is None:
                     raise PersistenceMappingError(
@@ -1776,6 +1819,7 @@ def create_app(
             player_message = _dragon_encounter_player_message(
                 resolution,
                 dragon_encounter,
+                player_id=player_id,
                 player_input=player_input,
                 structured_action=structured_action,
                 player_location=committed["player_state"]["current_location"],

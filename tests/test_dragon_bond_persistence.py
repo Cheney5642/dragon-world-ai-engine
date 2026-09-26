@@ -206,6 +206,19 @@ class DragonBondPersistenceTests(unittest.TestCase):
                     taming_state=taming_state,
                 )
             )
+            session.flush()
+            session.add(DragonEvent(
+                event_id=f"test_d4c_first_{dragon_id}",
+                event_type="dragon_first_encounter",
+                dragon_id=dragon_id,
+                player_id=self.player_id,
+                source_interaction_event_id=None,
+                world_day=1,
+                world_hour=8,
+                location_id=location,
+                milestone_key="first_encounter",
+                event_payload={},
+            ))
 
     def _set_dragon_state(self, taming_state: str) -> None:
         with self.session_factory.begin() as session:
@@ -489,14 +502,16 @@ class DragonBondPersistenceTests(unittest.TestCase):
         self.assertEqual(result["bond_state"]["fear"], 1)
         self.assertEqual(result["bond_state"]["bond"], 0)
 
-    def test_case_09_other_player_history_is_isolated(self) -> None:
+    def test_case_09_other_player_cannot_interact_with_discovered_dragon(self) -> None:
         self._ensure_player(self.other_player_id)
         careful = action("interact", "慢慢靠近 D4C Dragon", method="小心靠近")
         self._commit(careful, suffix="p1a")
         self._commit(careful, suffix="p1b")
-        result = self._commit(careful, player_id=self.other_player_id, suffix="p2")
-        event = self.persistence.get_interaction_event(result["source_interaction_event_id"])
-        self.assertEqual(event["event_payload"]["dragon_interaction"]["anti_farming"], "full")
+        with self.assertRaisesRegex(PersistenceMappingError, "another Player"):
+            self._commit(careful, player_id=self.other_player_id, suffix="p2")
+        self.assertIsNone(self.persistence.get_player_dragon_bond(
+            player_id=self.other_player_id, dragon_id=self.dragon_id,
+        ))
 
     def test_case_10_other_dragon_history_is_isolated(self) -> None:
         self._ensure_dragon(self.other_dragon_id)

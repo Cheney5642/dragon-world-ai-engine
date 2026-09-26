@@ -293,6 +293,19 @@ class DragonInteractionIntegrationTests(unittest.TestCase):
                     taming_state=taming_state,
                 )
             )
+            session.flush()
+            session.add(DragonEvent(
+                event_id=f"test_d4d_first_{dragon_id}",
+                event_type="dragon_first_encounter",
+                dragon_id=dragon_id,
+                player_id=self.player_id,
+                source_interaction_event_id=None,
+                world_day=1,
+                world_hour=8,
+                location_id=location,
+                milestone_key="first_encounter",
+                event_payload={},
+            ))
 
     def _seed_bond(
         self,
