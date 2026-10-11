@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 
 from api.app import _grounded_action_feedback, app, create_app
@@ -191,6 +193,33 @@ class WebApiSmokeTests(unittest.TestCase):
             payload,
             {"status": "ok", "service": "dragon-world-api"},
         )
+
+    def test_cors_adds_configured_origin_without_wildcard(self) -> None:
+        with patch.dict(os.environ, {"CORS_ORIGINS": "https://competition.example.com,*"}):
+            application = create_app(self.save_path)
+        with TestClient(application) as client:
+            headers = {"Access-Control-Request-Method": "POST"}
+            allowed = client.options(
+                "/api/action/execute",
+                headers={**headers, "Origin": "https://competition.example.com"},
+            )
+            local = client.options(
+                "/api/action/execute",
+                headers={**headers, "Origin": "http://localhost:3000"},
+            )
+            unknown = client.options(
+                "/api/action/execute",
+                headers={**headers, "Origin": "https://other.example.com"},
+            )
+        self.assertEqual(
+            allowed.headers.get("access-control-allow-origin"),
+            "https://competition.example.com",
+        )
+        self.assertEqual(
+            local.headers.get("access-control-allow-origin"),
+            "http://localhost:3000",
+        )
+        self.assertNotIn("access-control-allow-origin", unknown.headers)
 
     def test_world_summary_is_read_only_and_public(self) -> None:
         before = file_hash(self.save_path)

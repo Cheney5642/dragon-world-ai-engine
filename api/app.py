@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import threading
 import uuid
 from time import perf_counter
@@ -98,6 +99,15 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WORLD_SEED_PATH = PROJECT_ROOT / "data" / "world_seed.json"
+
+
+def _cors_allowed_origins() -> list[str]:
+    origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    for origin in os.getenv("CORS_ORIGINS", "").split(","):
+        origin = origin.strip().rstrip("/")
+        if origin and origin != "*" and origin not in origins:
+            origins.append(origin)
+    return origins
 
 
 class ActionRequest(BaseModel):
@@ -1296,10 +1306,7 @@ def create_app(
     )
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=_cors_allowed_origins(),
         allow_credentials=True,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],

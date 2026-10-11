@@ -33,17 +33,19 @@ function formatHour(hour: number): string {
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
+const STATIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH?.replace(/\/$/, "") || "";
+
 const LOCATION_SCENE_IMAGES: Record<string, string> = {
-  skeld_village: "/locations/skeld.jpg",
-  stormcliff: "/locations/stormcliff.jpg",
-  old_ruins: "/locations/old-ruins.jpg",
-  whispering_woods: "/locations/whispering-woods.jpg",
+  skeld_village: `${STATIC_BASE_PATH}/locations/skeld.jpg`,
+  stormcliff: `${STATIC_BASE_PATH}/locations/stormcliff.jpg`,
+  old_ruins: `${STATIC_BASE_PATH}/locations/old-ruins.jpg`,
+  whispering_woods: `${STATIC_BASE_PATH}/locations/whispering-woods.jpg`,
 };
 
 function locationSceneImage(location: Location): string | null {
   const authoredImage = LOCATION_SCENE_IMAGES[location.id];
   if (authoredImage) return authoredImage;
-  if (location.name === "雾蚀凹湾") return "/locations/mist-eroded-cove.jpg";
+  if (location.name === "雾蚀凹湾") return `${STATIC_BASE_PATH}/locations/mist-eroded-cove.jpg`;
   return null;
 }
 
